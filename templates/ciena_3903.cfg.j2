@@ -1,0 +1,231 @@
+! CIENA 3903 TEMPLATE
+! GENERATED_AT: {{ _generated_at }}
+
+{# LICENSES #}
+{% if license_keys %}
+{% for k in license_keys %}
+software license install license-key {{ k }}
+{% endfor %}
+{% endif %}
+
+resource-manager pool set feature traffic-profiling resource classifier count 512
+
+{% if single_vlan %}
+vlan create vlan {{ single_vlan}}
+{% endif %}
+
+log flash create filter default
+log flash add filter default blade-mgr config,info
+log flash add filter default chassis-mgr info
+log flash add filter default config-mgr info
+log flash add filter default dnld-mgr info
+log flash add filter default dhcp-mgr debug,error,info,options,pkt,sm,timers
+log flash add filter default dnsc-mgr resolve,monitor,info
+log flash add filter default event-mgr info
+log flash add filter default alarm-mgr config,info
+log flash add filter default igmp-mgr events,egress-pkt,ingress-pkt,info
+log flash add filter default interface-mgr debug,info,state-change
+log flash add filter default l2-protocol-mgr info
+log flash add filter default lacp-mgr error,info,notif,mux-sm,ptx-sm,rx-sm,sl-sm,tx-sm
+log flash add filter default lldp-mgr error,notif,other,pdu,sm,info
+log flash add filter default ntpc-mgr config,debug,info
+log flash add filter default port-mgr config,info,state-change
+log flash add filter default prtc-mgr info
+log flash add filter default snmp-mgr info
+log flash add filter default spidd-mgr info
+log flash add filter default software-mgr info
+log flash add filter default xcvr-mgr info,debug
+log flash add filter default ldp-mgr info
+log flash add filter default ospf-mgr info
+log flash add filter default rsvp-mgr info
+log flash add filter default mstp-mgr info
+log flash add filter default isis-mgr config,info
+log flash add filter default mpls-ldp-mgr config,info
+log flash add filter default mpls-mgr config,info
+log flash add filter default rtm-mgr config,info
+log flash add filter default xftp-mgr config,info
+log flash add filter default bfd-mgr config,info
+log flash add filter default vlli-mgr error,notif,info
+log flash add filter default sync-mgr config,info,state-change
+log flash add filter default perfmon-mgr config,info
+log flash add filter default routing-domain-mgr debug,info
+log flash add filter default ais-mgr config,info
+log flash add filter default irb-mgr config,info,state-change
+log flash add filter default laps-mgr config,info,state-change
+log flash add filter default port 1-3
+
+system set host-name {{ hostname }}
+
+{% if gateway %}
+interface set gateway {{ gateway }}
+{% endif %}
+
+{% if single_ip %}
+interface create ip-interface {{ single_if_name }} ip {{ single_ip }} ip-forwarding on{% if single_vlan %} vlan {{ single_vlan }}
+{% endif %}
+{% endif %}
+
+interface route add destination 10.0.140.6/32 gateway {{ gateway }}
+interface route add destination 10.0.140.9/32 gateway {{ gateway }}
+interface route add destination 10.0.140.200/32 gateway {{ gateway }}
+interface route add destination 10.0.210.0/24 gateway {{ gateway }}
+interface route add destination 172.20.0.249/32 gateway {{ gateway }}
+interface route add destination 172.20.0.226/32 gateway {{ gateway }}
+
+{% for s in ntp_servers | default([]) %}
+ntp client add server {{ s }}
+{% endfor %}
+
+{% for s in syslog_collectors | default([]) %}
+syslog create collector {{ s.addr }} severity {{ s.severity }}
+{% endfor %}
+
+{% for port in range(1,4) %}
+port set port {{ port }} max-frame-size 12000
+vlan remove vlan 127 port {{ port }}
+port set port {{ port }} acceptable-frame-type all
+{% endfor %}
+
+vlan add vlan {{ single_vlan }} port 3
+
+broadcast-containment set resource-mode off
+broadcast-containment enable
+broadcast-containment create filter Deafault_ucast kbps 4992 containment-classification unknown-ucast
+broadcast-containment create filter Deafault_mcast kbps 4992 containment-classification all-mcast
+broadcast-containment create filter Deafault_bcast kbps 4992
+
+eoam enable
+rstp disable
+rstp disable port 1
+rstp disable port 2
+rstp disable port 3
+mstp disable port 1
+mstp disable port 2
+mstp disable port 3
+chassis dying-gasp enable
+chassis dying-gasp set informs on
+benchmark enable
+system shell set global-more off
+system shell set global-inactivity-timeout 3
+system shell set global-inactivity-timer off
+system shell banner create banner welcome line " +---------------------------------------------------------------+"
+system shell banner add banner welcome line "  |     This system is for the use of authorized users only.      |"
+system shell banner add banner welcome line "  |Individuals using this system without authority or in excess   |"
+system shell banner add banner welcome line "  |of their authority, are subject to having all of the activities|"
+system shell banner add banner welcome line "  |on this system monitored and recorded by system personnel.     |"
+system shell banner add banner welcome line "  |                                                               |"
+system shell banner add banner welcome line "  |     In the course of monitoring individuals improperly using  |"
+system shell banner add banner welcome line "  |system, or in the course of system maintenance, the activities |"
+system shell banner add banner welcome line "  |of authorized users may also be monitored.                     |"
+system shell banner add banner welcome line "  |                                                               |"
+system shell banner add banner welcome line "  |     Anyone using this system expressly consents to such       |"
+system shell banner add banner welcome line "  |monitoring and is advised if such monitoring reveals possible  |"
+system shell banner add banner welcome line "  |evidence of criminal activity, system personnel may provide    |"
+system shell banner add banner welcome line "  |the evidence to law enforcement officials.                     |"
+system shell banner add banner welcome line "+---------------------------------------------------------------+"
+
+telnet server disable
+{% for s in tacacs_servers | default([]) %}
+tacacs add server {{ s }}
+{% endfor %}
+{% for s in tacacs_servers | default([]) %}
+tacacs authentication add server {{ s }}
+{% endfor %}
+{% for s in tacacs_servers | default([]) %}
+tacacs authorization add server {{ s }}
+{% endfor %}
+{% if tacacs_secret %}
+tacacs set secret {{ tacacs_secret }}
+{% endif %}
+tacacs authorization enable
+
+system xftp set mode SFTP
+system xftp set tftp-server 172.20.0.165 server-port 22
+
+# SSH settings
+ssh client algorithm kex disable algorithm diffie-hellman-group-exchange-sha256
+ssh client algorithm kex disable algorithm diffie-hellman-group-exchange-sha1
+ssh client algorithm kex disable algorithm diffie-hellman-group14-sha1
+ssh client algorithm kex disable algorithm diffie-hellman-group1-sha1
+ssh client algorithm encryption disable algorithm 3des-cbc
+ssh client algorithm mac disable algorithm hmac-md5-etm@openssh.com
+ssh client algorithm mac disable algorithm hmac-sha1-etm@openssh.com
+ssh client algorithm mac disable algorithm umac-64-etm@openssh.com
+ssh client algorithm mac disable algorithm umac-128-etm@openssh.com
+ssh client algorithm mac disable algorithm hmac-sha2-256-etm@openssh.com
+ssh client algorithm mac disable algorithm hmac-sha2-512-etm@openssh.com
+ssh client algorithm mac disable algorithm hmac-sha1-96-etm@openssh.com
+ssh client algorithm mac disable algorithm hmac-md5-96-etm@openssh.com
+ssh client algorithm mac disable algorithm hmac-md5
+ssh client algorithm mac disable algorithm hmac-sha1
+ssh client algorithm mac disable algorithm umac-64@openssh.com
+ssh client algorithm mac disable algorithm umac-128@openssh.com
+ssh client algorithm mac disable algorithm hmac-md5-96
+ssh client algorithm host-key-authentication disable algorithm ssh-rsa
+ssh client algorithm host-key-authentication disable algorithm x509v3-sign-rsa
+ssh client algorithm host-key-authentication disable algorithm x509v3-sign-dss
+ssh client algorithm host-key-authentication disable algorithm x509v3-ecdsa-sha2-nistp256
+ssh client algorithm host-key-authentication disable algorithm x509v3-ecdsa-sha2-nistp384
+ssh client algorithm host-key-authentication disable algorithm x509v3-ecdsa-sha2-nistp521
+ssh server algorithm kex disable algorithm diffie-hellman-group-exchange-sha256
+ssh server algorithm kex disable algorithm diffie-hellman-group-exchange-sha1
+ssh server algorithm kex disable algorithm diffie-hellman-group14-sha1
+ssh server algorithm kex disable algorithm diffie-hellman-group1-sha1
+ssh server algorithm encryption disable algorithm 3des-cbc
+ssh server algorithm mac disable algorithm hmac-md5-etm@openssh.com
+ssh server algorithm mac disable algorithm hmac-sha1-etm@openssh.com
+ssh server algorithm mac disable algorithm umac-64-etm@openssh.com
+ssh server algorithm mac disable algorithm umac-128-etm@openssh.com
+ssh server algorithm mac disable algorithm hmac-sha2-256-etm@openssh.com
+ssh server algorithm mac disable algorithm hmac-sha2-512-etm@openssh.com
+ssh server algorithm mac disable algorithm hmac-sha1-96-etm@openssh.com
+ssh server algorithm mac disable algorithm hmac-md5-96-etm@openssh.com
+ssh server algorithm mac disable algorithm hmac-md5
+ssh server algorithm mac disable algorithm hmac-sha1
+ssh server algorithm mac disable algorithm umac-64@openssh.com
+ssh server algorithm mac disable algorithm umac-128@openssh.com
+ssh server algorithm mac disable algorithm hmac-md5-96
+ssh server algorithm public-key-authentication disable algorithm ssh-dss
+ssh server algorithm public-key-authentication disable algorithm ssh-rsa
+ssh server algorithm public-key-authentication disable algorithm x509v3-sign-rsa
+ssh server algorithm public-key-authentication disable algorithm x509v3-sign-dss
+ssh server algorithm public-key-authentication disable algorithm x509v3-ecdsa-sha2-nistp256
+ssh server algorithm public-key-authentication disable algorithm x509v3-ecdsa-sha2-nistp384
+ssh server algorithm public-key-authentication disable algorithm x509v3-ecdsa-sha2-nistp521
+ssh server enable
+ssh server key generate key-type dsa1024
+
+# SNMP settings
+snmp set preferred-source-address loopback
+snmp set pdu-size 1200
+snmp delete user public
+snmp delete user private
+snmp create user MainOne auth-protocol noAuth
+snmp security-to-group detach user public sec-model v1
+snmp security-to-group detach user public sec-model v2c
+snmp security-to-group detach user private sec-model v1
+snmp security-to-group detach user private sec-model v2c
+snmp security-to-group attach user MainOne sec-model v2c group MainOne
+snmp delete community-index t0000000
+snmp delete community-index t0000001
+snmp create community-index Main1 community 5p@jXK%PbYC0jA0 sec-name MainOne transport-tag anywhereTag
+snmp delete access-entry public sec-model v1 sec-level noAuth
+snmp delete access-entry public sec-model v2c sec-level noAuth
+snmp delete access-entry private sec-model v1 sec-level noAuth
+snmp delete access-entry private sec-model v2c sec-level noAuth
+snmp create access-entry MainOne sec-model v2c sec-level noAuth read-view V12cView notify-view V12cView
+snmp create target NetbossMON addr 10.0.140.13/32 param-name Generalv2c tag anywhereTag
+snmp create target MCPold addr 172.20.0.165/32 param-name Generalv2c tag anywhereTag
+snmp create target MCP1 addr 172.20.0.249/32 param-name Generalv2c tag anywhereTag
+snmp create target MCP2 addr 172.20.0.226/32 param-name Generalv2c tag anywhereTag
+snmp create target-param Generalv2c sec-name MainOne sec-model v2c sec-level noAuth
+snmp create target-param v2c sec-name MainOne sec-model v2c sec-level noAuth
+snmp create target-param NetbossMonv2c sec-name rF4Y1D2Nm9 sec-model v2c sec-level noAuth
+snmp create target-param v2c_pub sec-name rF4Y1D2Nm9 sec-model v2c sec-level noAuth
+snmp create target-param mcp-alms sec-name rF4Y1D2Nm9 sec-model v2c sec-level noAuth
+snmp create target-param informParamv2c sec-name rF4Y1D2Nm9 sec-model v2c sec-level noAuth
+snmp delete notify Traps
+snmp create notify Traps notify-tag anywhereTag notify-type trap
+
+dhcp client disable
+dhcpv6 client disable

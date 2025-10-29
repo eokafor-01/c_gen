@@ -1,0 +1,183 @@
+! CIENA 3926 TEMPLATE - SUPPORTS AGGREGATION
+! GENERATED_AT: {{ _generated_at }}
+
+{# LICENSES #}
+{% if license_keys %}
+{% for k in license_keys %}
+software license install license-key {{ k }}
+{% endfor %}
+{% endif %}
+
+resource-manager pool set feature traffic-profiling resource classifier count 512
+resource-manager pool set feature transport-oam resource classifier count 512
+resource-manager pool set feature vc-statistics resource classifier count 256
+
+{% if interfaces %}
+{% for interface in interfaces %}
+vlan create vlan {{ interface.vlan }}
+{% endfor %}
+{% endif %}
+
+log flash create filter default
+log flash add filter default blade-mgr config,info
+log flash add filter default chassis-mgr info
+log flash add filter default config-mgr info
+log flash add filter default dnld-mgr info
+log flash add filter default dhcp-mgr debug,error,info,options,pkt,sm,timers
+log flash add filter default dnsc-mgr resolve,monitor,info
+log flash add filter default event-mgr info
+log flash add filter default alarm-mgr config,info
+log flash add filter default igmp-mgr events,egress-pkt,ingress-pkt,info
+log flash add filter default interface-mgr debug,info,state-change
+log flash add filter default l2-protocol-mgr info
+log flash add filter default lacp-mgr error,info,notif,mux-sm,ptx-sm,rx-sm,sl-sm,tx-sm
+log flash add filter default lldp-mgr error,notif,other,pdu,sm,info
+log flash add filter default ntpc-mgr config,debug,info
+log flash add filter default port-mgr config,info,state-change
+log flash add filter default prtc-mgr info
+log flash add filter default snmp-mgr info
+log flash add filter default spidd-mgr info
+log flash add filter default software-mgr info
+log flash add filter default xcvr-mgr info,debug
+log flash add filter default ldp-mgr info
+log flash add filter default ospf-mgr info
+log flash add filter default rsvp-mgr info
+log flash add filter default mstp-mgr info
+log flash add filter default isis-mgr config,info
+log flash add filter default mpls-ldp-mgr config,info
+log flash add filter default mpls-mgr config,info
+log flash add filter default rtm-mgr config,info
+log flash add filter default xftp-mgr config,info
+log flash add filter default bfd-mgr config,info
+log flash add filter default vlli-mgr error,notif,info
+log flash add filter default sync-mgr config,info,state-change
+log flash add filter default perfmon-mgr config,info
+log flash add filter default routing-domain-mgr debug,info
+log flash add filter default ais-mgr config,info
+log flash add filter default irb-mgr config,info,state-change
+log flash add filter default port 1.1-1.8
+
+system set host-name {{ hostname }}
+system set time-offset 3600
+
+{% if aggregation_enabled and aggregations != [] %}
+{% for aggregation in aggregations %}
+aggregation create agg {{ aggregation.name }}
+{% for i in aggregation.members %}
+aggregation add agg {{ aggregation.name }} port {{ i }}
+{% endfor %}
+{% endfor %}
+{% endif %}
+
+interface create loopback lb0 ip {{ loopback_ip }}
+{% if interfaces %}
+{% for interface in interfaces %}
+interface create ip-interface {{ interface.name }} ip {{ interface.ip }} mtu {{ interface.mtu }} ip-forwarding on vlan {{ interface.vlan }}
+{% endfor %}
+{% endif %}
+
+{% for s in ntp_servers | default([]) %}
+ntp client add server {{ s }}
+{% endfor %}
+{% for s in syslog_collectors | default([]) %}
+syslog create collector {{ s.addr }} severity {{ s.severity }}
+{% endfor %}
+bfd set hw-acceleration off
+bfd enable
+
+port set port 1.1-1.8 max-frame-size 10000 
+vlan remove vlan 127 port 1.1-1.8
+{% if interfaces %}
+{% for interface in interfaces %}
+vlan add vlan {{ interface.vlan }} port {{ interface.port }}
+{% endfor %}
+{% endif %}
+
+ospf instance create ospf-instance 1
+ospf interface attach ip-interface lb0 area 0.0.0.0 ospf-instance 1
+{% if interfaces %}
+{% for interface in interfaces %}
+ospf interface attach ip-interface {{ interface.name }} area 0.0.0.0 ospf-instance 1
+{% endfor %}
+{% endif %}
+
+traffic-profiling enable
+broadcast-containment set resource-mode off
+broadcast-containment enable
+broadcast-containment create filter Deafault_ucast kbps 4992 containment-classification unknown-ucast
+broadcast-containment create filter Deafault_mcast kbps 4992 containment-classification all-mcast
+broadcast-containment create filter Deafault_bcast kbps 4992
+eoam enable
+eoam enable port 1.1-1.8
+eoam set port 1.1-1.8 dying-gasp on
+eoam set port 1.1-1.8 critical-event on
+rstp disable port 1.1-1.8
+mstp disable port 1.1-1.8
+chassis dying-gasp enable
+chassis dying-gasp set informs on
+cfm enable
+cfm set vs-automatic-meps off
+system shell set global-more off
+system shell set global-inactivity-timeout 3
+system shell set global-inactivity-timer off
+system shell banner create banner welcome line " +---------------------------------------------------------------+"
+system shell banner add banner welcome line "  |     This system is for the use of authorized users only.      |"
+system shell banner add banner welcome line "  |Individuals using this system without authority or in excess   |"
+system shell banner add banner welcome line "  |of their authority, are subject to having all of the activities|"
+system shell banner add banner welcome line "  |on this system monitored and recorded by system personnel.     |"
+system shell banner add banner welcome line "  |                                                                                                                                                    |"
+system shell banner add banner welcome line "  |     In the course of monitoring individuals improperly using  |"
+system shell banner add banner welcome line "  |system, or in the course of system maintenance, the activities |"
+system shell banner add banner welcome line "  |of authorized users may also be monitored.                     |"
+system shell banner add banner welcome line "  |                                                                                                                                                    |"
+system shell banner add banner welcome line "  |     Anyone using this system expressly consents to such       |"
+system shell banner add banner welcome line "  |monitoring and is advised if such monitoring reveals possible  |"
+system shell banner add banner welcome line "  |evidence of criminal activity, system personnel may provide    |"
+system shell banner add banner welcome line "  |the evidence to law enforcement officials.                     |"
+system shell banner add banner welcome line "+---------------------------------------------------------------+"
+
+tacacs set preferred-source-address loopback
+{% for s in tacacs_servers | default([]) %}
+tacacs add server {{ s }}
+{% endfor %}
+{% for s in tacacs_servers | default([]) %}
+tacacs authentication add server {{ s }}
+{% endfor %}
+{% for s in tacacs_servers | default([]) %}
+tacacs authorization add server {{ s }}
+{% endfor %}
+{% if tacacs_secret %}
+tacacs set secret {{ tacacs_secret }}
+{% endif %}
+tacacs authentication enable
+user auth set priority 1 method tacacs
+user auth set priority 2 method local
+system server scp enable
+system server sftp enable
+ssh server enable
+ssh server key generate key-type dsa1024
+snmp set preferred-source-address loopback
+snmp set pdu-size 1200
+snmp delete user public
+snmp delete user private
+snmp create user MainOne auth-protocol noAuth
+snmp security-to-group detach user public sec-model v1
+snmp security-to-group detach user public sec-model v2c
+snmp security-to-group detach user private sec-model v1
+snmp security-to-group detach user private sec-model v2c
+snmp security-to-group attach user MainOne sec-model v2c group MainOne
+snmp delete community-index t0000000
+snmp delete community-index t0000001
+snmp create community-index Main1 community 5p@jXK%PbYC0jA0 sec-name MainOne transport-tag anywhereTag
+snmp delete access-entry public sec-model v1 sec-level noAuth
+snmp delete access-entry public sec-model v2c sec-level noAuth
+snmp delete access-entry private sec-model v1 sec-level noAuth
+snmp delete access-entry private sec-model v2c sec-level noAuth
+snmp create access-entry MainOne sec-model v2c sec-level noAuth read-view V12cView notify-view V12cView
+snmp create target NetbossMON addr 10.0.140.13/32 param-name Generalv2c tag anywhereTag
+snmp create target MCP1 addr 172.20.0.249/32 param-name Generalv2c tag anywhereTag
+snmp create target MCP2 addr 172.20.0.226/32 param-name Generalv2c tag anywhereTag
+snmp create target-param Generalv2c sec-name MainOne sec-model v2c sec-level noAuth
+snmp delete notify Traps
+snmp create notify Traps notify-tag anywhereTag notify-type trap
+dhcp client disable
