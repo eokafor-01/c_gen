@@ -8,6 +8,7 @@ from generator import (
 )
 
 MODELS = ["3903", "3916", "3926", "3928", "5142", "5130", "5171", "8110", "8114"]
+SAOS10_MODELS = ["5171", "5130", "8110", "8114"]
 SOFTWARE_TYPES = ["saos6", "saos8", "saos10"]
 
 PORT_RANGES = {
@@ -33,6 +34,7 @@ def build_device_from_inputs(inputs: Dict) -> Dict:
         "tacacs_servers": [s for s in [inputs.get("tacacs_server_1"), inputs.get("tacacs_server_2")] if s],
         "tacacs_secret": inputs.get("tacacs_secret"),
         "license_keys": inputs.get("license_keys"),
+        "license_server_ip": inputs.get("license_server_ip"),  # Added
         "ntp_servers": inputs.get("ntp_servers", []),
         "syslog_collectors": [{"addr": s, "severity": "emergency,alert,error,warning,notice,info,debug"} for s in inputs.get("syslog_collectors", [])],
         "_generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z",
@@ -147,12 +149,18 @@ col1, col2 = st.columns(2)
 with col1:
     hostname = st.text_input("HOSTNAME (SINGLE DEVICE)", value="CIENA-01").strip()
     
-    # Model and Software Selection
+    # Model Selection
     m_col1, m_col2 = st.columns(2)
     with m_col1:
         model = st.selectbox("MODEL", MODELS)
+    
+    # Determine default software index based on model
+    # saos10 for specified models, saos6 for others
+    default_sw_ix = 2 if model in SAOS10_MODELS else 0
+    
     with m_col2:
-        software_version = st.selectbox("SOFTWARE VERSION", SOFTWARE_TYPES)
+        # Use key to force reset when model changes
+        software_version = st.selectbox("SOFTWARE VERSION", SOFTWARE_TYPES, index=default_sw_ix, key=f"sw_ver_{model}")
 
     backhaul_options = ["single"] if model == "3903" else ["single", "dual"]
     backhaul = st.selectbox("BACKHAUL TYPE", backhaul_options, index=0)
@@ -165,7 +173,14 @@ with col1:
 
     model_defaults = get_model_defaults(model)
     tacacs_secret = st.text_input("TACACS SECRET", value=model_defaults.get("tacacs_secret"))
-    license_keys_text = st.text_area("LICENSE KEYS — 1 PER LINE", value="\n".join(model_defaults.get("license_keys", [])), height=100)
+    
+    # License Logic: Keys vs Server IP
+    if software_version == "saos10":
+        license_server_ip = st.text_input("LICENSE SERVER IP", value="10.0.1.20")
+        license_keys_text = ""
+    else:
+        license_keys_text = st.text_area("LICENSE KEYS — 1 PER LINE", value="\n".join(model_defaults.get("license_keys", [])), height=100)
+        license_server_ip = ""
 
 with col2:
     # defaults for UI
@@ -297,6 +312,7 @@ if st.button("RENDER CONFIG(S)"):
         "tacacs_server_2": tacacs_server_2,
         "tacacs_secret": tacacs_secret,
         "license_keys": license_keys,
+        "license_server_ip": locals().get("license_server_ip", ""),
         "aggregation_enabled": aggregation_enabled,
         "aggregation_name": locals().get("aggregation_name", ""),
         "single_port": locals().get("single_port"),
