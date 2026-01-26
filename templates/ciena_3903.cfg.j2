@@ -138,6 +138,7 @@ tacacs authorization add server {{ s }}
 tacacs set secret {{ tacacs_secret }}
 {% endif %}
 tacacs authorization enable
+user auth set priority 1 method tacacs
 
 system xftp set mode SFTP
 system xftp set tftp-server 172.20.0.165 server-port 22
