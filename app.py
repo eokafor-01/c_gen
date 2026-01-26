@@ -10,7 +10,6 @@ from generator import (
 MODELS = ["3903", "3916", "3926", "3928", "5142", "5130", "5171", "8110", "8114"]
 SOFTWARE_TYPES = ["saos6", "saos8", "saos10"]
 
-# Updated Port Ranges for new models
 PORT_RANGES = {
     "3903": [str(i) for i in range(1, 4)],
     "3916": [str(i) for i in range(1, 7)],
@@ -29,7 +28,7 @@ def build_device_from_inputs(inputs: Dict) -> Dict:
     dev = {
         "hostname": inputs["hostname"],
         "model": inputs["model"],
-        "software_version": inputs["software_version"],  # Added
+        "software_version": inputs["software_version"],
         "backhaul": inputs["backhaul"],
         "tacacs_servers": [s for s in [inputs.get("tacacs_server_1"), inputs.get("tacacs_server_2")] if s],
         "tacacs_secret": inputs.get("tacacs_secret"),
@@ -120,6 +119,7 @@ def build_device_from_inputs(inputs: Dict) -> Dict:
     if (inputs["model"].isdigit() and int(inputs["model"]) > 3903) or inputs["model"] in ["5142", "5130", "5171", "8110", "8114"]:
         if inputs.get("loopback_ip"):
             dev["loopback_ip"] = inputs["loopback_ip"]
+    
     if inputs["model"] == "3903" and inputs.get("gateway"):
         dev["gateway"] = inputs["gateway"]
 
@@ -263,7 +263,9 @@ with col2:
     # loopback / gateway
     is_large_model = (model.isdigit() and int(model) > 3903) or model in ["5142", "5130", "5171", "8110", "8114"]
     loopback_ip = st.text_input("LOOPBACK IP (E.G. 172.20.38.240)", value="") if is_large_model else ""
-    gateway = st.text_input("GATEWAY IP", value="") if model == "3903" else ""
+    
+    # NOTE: For 3903, Gateway IP is the same as Neighbor IP. logic handles it below.
+    gateway = "" 
 
 st.markdown("---")
 st.header("OTHER SETTINGS")
@@ -278,6 +280,13 @@ if st.button("RENDER CONFIG(S)"):
     license_keys = [l.strip() for l in license_keys_text.splitlines() if l.strip()]
     ntp_servers = [s.strip() for s in re.split(r"[,\s]+", ntp_text) if s.strip()]
     syslog_collectors = [s.strip() for s in re.split(r"[,\s]+", syslog_text) if s.strip()]
+
+    # Capture vars from locals() because they are created in conditional blocks
+    single_neighbor_ip_val = locals().get("single_neighbor_ip", "")
+
+    # For 3903, the Gateway must match the Single Neighbor IP
+    if model == "3903":
+        gateway = single_neighbor_ip_val
 
     inputs = {
         "hostname": hostname,
@@ -298,7 +307,7 @@ if st.button("RENDER CONFIG(S)"):
         "single_mtu": locals().get("single_mtu", "9216"),
         "single_neighbor_name": locals().get("single_neighbor_name", ""),
         "single_neighbor_port": locals().get("single_neighbor_port", ""),
-        "single_neighbor_ip": locals().get("single_neighbor_ip", ""),
+        "single_neighbor_ip": single_neighbor_ip_val,
         
         "primary_port": locals().get("primary_port"),
         "primary_ip": locals().get("primary_ip", ""),
