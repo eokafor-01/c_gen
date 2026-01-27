@@ -99,13 +99,12 @@ def get_model_defaults(model: str) -> Dict[str, List[str]]:
             "tacacs_secret": default_secret,
             "license_keys": ["WDFUI8C7N3NLBH", "W5FUI8C7N4ZEN3", "WCFUI8C7N3NMBH", "W6FUI8C7N3NNBC"],
         },
-        # For new models, providing placeholders to prevent errors. 
-        # Update these with real default license keys if you have them.
+        # SAOS 10 Models (License Keys not typically used, but keeping placeholders)
         "5142": {"tacacs_secret": default_secret, "license_keys": ["<5142-KEY-PLACEHOLDER>"]},
-        "5130": {"tacacs_secret": default_secret, "license_keys": ["<5130-KEY-PLACEHOLDER>"]},
-        "5171": {"tacacs_secret": default_secret, "license_keys": ["<5171-KEY-PLACEHOLDER>"]},
-        "8110": {"tacacs_secret": default_secret, "license_keys": ["<8110-KEY-PLACEHOLDER>"]},
-        "8114": {"tacacs_secret": default_secret, "license_keys": ["<8114-KEY-PLACEHOLDER>"]},
+        "5130": {"tacacs_secret": default_secret, "license_keys": []},
+        "5171": {"tacacs_secret": default_secret, "license_keys": []},
+        "8110": {"tacacs_secret": default_secret, "license_keys": []},
+        "8114": {"tacacs_secret": default_secret, "license_keys": []},
     }
     return defaults_map.get(m, {
         "tacacs_secret": "vault://ciena/default/tacacs",
@@ -114,7 +113,6 @@ def get_model_defaults(model: str) -> Dict[str, List[str]]:
 
 
 def safe_filename(s: str) -> str:
-    # keep common safe chars; normalize spaces -> underscore
     s = re.sub(r"\s+", "_", s)
     return re.sub(r"[^A-Za-z0-9._-]", "_", s)
 
@@ -190,7 +188,6 @@ def render_device(dev: Dict, available_templates: Optional[List[str]] = None) ->
 
     dev["interfaces"] = _build_interfaces_from_backhaul(dev)
 
-    # Updated to pass software version
     tpl_used = choose_template(
         model, 
         dev.get("backhaul", ""), 
