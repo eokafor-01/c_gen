@@ -1,0 +1,133 @@
+config
+
+[set system hostname]
+system config hostname {{ hostname }}
+
+[set loopback]
+oc-if:interfaces interface 'lb0' config name "lb0" type loopback role cn-if:management
+{%- if loopback_ip %}
+oc-if:interfaces interface 'lb0' ipv4 addresses address '{{ loopback_ip }}' config ip "{{ loopback_ip }}" prefix-length 32
+{%- endif %}
+management-plane default-source-ip interface lb0
+
+[configure ip interface]
+{# --- 1. Create Classifiers (Unique by VLAN) --- #}
+{%- set printed_vlans = [] %}
+{%- for iface in interfaces if iface.description == 'BACKHAUL' %}
+{%- if iface.vlan and iface.vlan not in printed_vlans %}
+classifiers classifier '{{ iface.vlan }}' filter-entry 'classifier:vtag-stack' vtags '1' vlan-id {{ iface.vlan }}
+{%- set _ = printed_vlans.append(iface.vlan) %}
+{%- endif %}
+{%- endfor %}
+
+{# --- 2. Create Aggregations (LAGs) if enabled --- #}
+{%- if aggregation_enabled and aggregations %}
+{%- for agg in aggregations %}
+{%- if agg.name %}
+oc-if:interfaces interface '{{ agg.name }}' config name "{{ agg.name }}" type lag
+{%- for member in agg.members %}
+oc-if:interfaces interface '{{ agg.name }}' config agg member-ports '{{ member }}'
+{%- endfor %}
+{# Description logic: try to find which neighbor this agg connects to #}
+{%- set agg_desc = "AGGREGATION " ~ agg.name %}
+{%- for iface in interfaces if iface.port == agg.name %}
+{%- if iface.neighbor_name %}
+{%- set agg_desc = "TO " ~ iface.neighbor_name ~ " PORT " ~ iface.neighbor_port %}
+{%- endif %}
+{%- endfor %}
+logical-ports logical-port '{{ agg.name }}' mtu 9800 description "{{ agg_desc }}"
+{%- endif %}
+{%- endfor %}
+{%- endif %}
+
+{# --- 3. Create FDs, FPs, and Interfaces --- #}
+{%- for iface in interfaces if iface.description == 'BACKHAUL' %}
+{# Determine Neighbor Name #}
+{%- set neighbor = iface.neighbor_name | default("REMOTE_" ~ loop.index, true) %}
+{%- set fd_name = "FD_" ~ neighbor %}
+{# Parse IP and Prefix #}
+{%- set ip_parts = iface.ip.split('/') %}
+{%- set ip_addr = ip_parts[0] %}
+{%- set prefix = ip_parts[1] %}
+
+{# Create FD #}
+fds fd '{{ fd_name }}' mode vpls initiate-cos-to-frame-map "default-c2f" initiate-frame-to-cos-map "default-f2c"
+
+{# Create FP #}
+{%- set fp_name = "fp_" ~ iface.vlan ~ "_" ~ iface.name %}
+fps fp '{{ fp_name }}' fd-name "{{ fd_name }}" logical-port "{{ iface.name }}" mtu-size 9216 frame-to-cos-map "default-f2c" cos-to-frame-map "default-c2f" classifier-list-precedence 7 stats-collection off classifier-list "{{ iface.vlan }}"
+fps fp '{{ fp_name }}' egress-l2-transform '{{ iface.vlan }}' vlan-stack '1' push-vid {{ iface.vlan }}
+
+{# Create IP Interface #}
+oc-if:interfaces interface '{{ neighbor }}' config name "{{ neighbor }}" mtu 9136 stats-collection off type ip underlay-binding config fd "{{ fd_name }}"
+oc-if:interfaces interface '{{ neighbor }}' ipv4 addresses address '{{ ip_addr }}' config ip "{{ ip_addr }}" prefix-length {{ prefix }}
+
+{%- endfor %}
+
+[configure OSPF]
+{%- for iface in interfaces if iface.description == 'BACKHAUL' %}
+ospf instance '1' areas area '0.0.0.0' network '{{ iface.ip }}'
+{%- endfor %}
+{%- if loopback_ip %}
+ospf instance '1' areas area '0.0.0.0' network '{{ loopback_ip }}/32'
+{%- endif %}
+
+[configure ntp]
+system ntp admin-state enabled
+{%- for server in ntp_servers %}
+system ntp associations remote-ntp-server server-entry {{ server }} admin-state enabled
+{%- endfor %}
+
+[timeout time]
+system ssh-server config timeout 10800
+
+[enabling Web GUI]
+management-plane default-source-ip interface "lb0"
+management-plane server-applications application web-gui enable true
+
+[licence management plane]
+{%- if license_server_ip %}
+license-management-config license-server-config "{{ license_server_ip }}"
+{%- endif %}
+exit
+exit
+
+[tacacs config]
+nacm groups group 'admin' user-name txmcp2
+system aaa authentication users user txmcp2 config username txmcp2 password P@55word##&$$ role SYSTEM_ROLE_DIAG
+system aaa authentication config authentication-method "Tacacs_server" "AUTH_LOC"
+system aaa server-groups server-group 'Tacacs_server' config name "Tacacs_server" type oc-aaa:TACACS search-method priority
+{%- for server in tacacs_servers %}
+system aaa server-groups server-group 'Tacacs_server' servers server '{{ server }}' config address "{{ server }}" timeout 30
+system aaa server-groups server-group 'Tacacs_server' servers server '{{ server }}' tacacs config secret-key {{ tacacs_secret }}
+{%- endfor %}
+
+[snmp config]
+snmp target 'NetbossMon' target-params "NetbossMonV2C" udp ip "10.0.141.2"
+snmp target 'NetbossMon' tag "cienaTag"
+snmp target 'MCP-serverMon' target-params "MCP-serverMonV2C" udp ip "172.20.0.249"
+snmp target 'MCP-serverMon' tag "cienaTag2"
+snmp target 'MCP-serverMon2' target-params "MCP-serverMonV2C" udp ip "172.20.0.226"
+snmp target 'MCP-serverMon2' tag "cienaTag2"
+snmp target-params 'NetbossMonV2C' v2c security-name "SEC-V2C"
+snmp target-params 'MCP-serverMonV2C' v2c security-name "SEC-V2C"
+snmp notify 'test-notify' tag "cienaTag2"
+snmp community 't2' text-name "5p@jXK%PbYC0jA0" security-name "SEC-V2C"
+snmp vacm group 'CienaGroup' member 'SEC-V2C' security-model v2c
+snmp vacm group 'CienaGroup' access '' 'v2c' 'no-auth-no-priv' read-view "Netboss" notify-view "Netboss"
+snmp vacm view 'Netboss' include "internet"
+
+[welcome banner]
+system config motd-banner "*This system is for the use of authorized users only. Individuals using this system without authority or in excess of their authority, are subject to having all of the activities on this system monitored and recorded by system personnel. In the course of monitoring individuals improperly using system, or in the course of system maintenance, the activities of authorized users may also be monitored. Anyone using this system expressly consents to such monitoring and is advised if such monitoring reveals possible evidence of criminal activity, system personnel may provide the evidence to law enforcement officials"
+
+[Maintenance Domain for CFM]
+maintenance-domain 'md3' name-type character-string name "md3" mhf-creation none id-permission chassis
+
+
+[remove ztp]
+config
+{%- set max_p = ztp_max_ports | default(10) %}
+{%- for i in range(1, max_p + 1) %}
+no fps fp remote-fp{{ i }}
+{%- endfor %}
+exit

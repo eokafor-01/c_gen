@@ -48,7 +48,11 @@ def choose_template(model: str, backhaul: str, software: str = "", role: str = "
     if model and software and backhaul:
         candidates.append(f"ciena_{model}_{software}_{backhaul}.cfg.j2")
 
-    # Priority 3: Model + Backhaul (Legacy behavior)
+    # Priority 3: Generic SAOS 10 (NEW: Fallback for all saos10 devices)
+    if software == "saos10":
+        candidates.append("ciena_saos10.cfg.j2")
+
+    # Priority 4: Model + Backhaul (Legacy behavior)
     if model and backhaul:
         candidates += [
             f"ciena_{model}_{backhaul}.cfg.j2",
@@ -56,11 +60,11 @@ def choose_template(model: str, backhaul: str, software: str = "", role: str = "
             f"ciena_{model}_{backhaul.replace('-', '_')}.cfg.j2",
         ]
         
-    # Priority 4: Model + Role
+    # Priority 5: Model + Role
     if model and role:
         candidates.append(f"ciena_{model}_{role}.cfg.j2")
         
-    # Priority 5: Model only
+    # Priority 6: Model only
     if model:
         candidates.append(f"ciena_{model}.cfg.j2")
         

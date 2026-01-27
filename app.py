@@ -4,7 +4,8 @@ import re
 from typing import Dict, List, Optional
 from generator import (
     list_templates, get_model_defaults,
-    render_device, create_zip_from_dict, safe_filename
+    render_device, create_zip_from_dict, safe_filename,
+    SAOS10_SECRET
 )
 
 MODELS = ["3903", "3916", "3926", "3928", "5142", "5130", "5171", "8110", "8114"]
@@ -34,11 +35,15 @@ def build_device_from_inputs(inputs: Dict) -> Dict:
         "tacacs_servers": [s for s in [inputs.get("tacacs_server_1"), inputs.get("tacacs_server_2")] if s],
         "tacacs_secret": inputs.get("tacacs_secret"),
         "license_keys": inputs.get("license_keys"),
-        "license_server_ip": inputs.get("license_server_ip"),  # Added
+        "license_server_ip": inputs.get("license_server_ip"),
         "ntp_servers": inputs.get("ntp_servers", []),
         "syslog_collectors": [{"addr": s, "severity": "emergency,alert,error,warning,notice,info,debug"} for s in inputs.get("syslog_collectors", [])],
         "_generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z",
     }
+
+    # Calculate Max Ports for ZTP Removal Script
+    model_ports = PORT_RANGES.get(inputs["model"], [])
+    dev["ztp_max_ports"] = len(model_ports) if model_ports else 10
 
     agg_enabled = inputs.get("aggregation_enabled", False)
     dev["aggregation_enabled"] = bool(agg_enabled)
@@ -155,7 +160,6 @@ with col1:
         model = st.selectbox("MODEL", MODELS)
     
     # Determine default software index based on model
-    # saos10 for specified models, saos6 for others
     default_sw_ix = 2 if model in SAOS10_MODELS else 0
     
     with m_col2:
@@ -171,8 +175,15 @@ with col1:
     with col4:
         tacacs_server_2 = st.text_input("TACACS SERVER 2 (IP)", value="10.0.141.211")
 
+    # Secret Selection Logic
     model_defaults = get_model_defaults(model)
-    tacacs_secret = st.text_input("TACACS SECRET", value=model_defaults.get("tacacs_secret"))
+    if software_version == "saos10":
+        # Force the SAOS 10 secret if software type is saos10
+        current_secret_val = SAOS10_SECRET
+    else:
+        current_secret_val = model_defaults.get("tacacs_secret")
+
+    tacacs_secret = st.text_input("TACACS SECRET", value=current_secret_val)
     
     # License Logic: Keys vs Server IP
     if software_version == "saos10":
