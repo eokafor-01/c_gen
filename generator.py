@@ -9,6 +9,9 @@ from typing import List, Dict, Optional, Tuple
 TEMPLATE_DIR = Path("templates")
 TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
 
+# New SAOS 10 Specific Secret
+SAOS10_SECRET = "ku34yr&oi3746t7YT5R434893"
+
 env = Environment(
     loader=FileSystemLoader(str(TEMPLATE_DIR)),
     autoescape=select_autoescape([]),
@@ -79,8 +82,8 @@ def render_template(template_name: str, context: Dict) -> str:
 def get_model_defaults(model: str) -> Dict[str, List[str]]:
     m = (model or "").strip()
     
-    # Common secret for 39xx/51xx legacy (Example)
-    default_secret = "#A#ZlFm6R4dQ0uR4D6rOjaXTMIoNnKVa9BP+s1VMFnBseL+AN66GjfDOwDrLXWCDUZc2dpW54ThKyWUfwFHN+CL3/B+2uqaL2URdzrB8ecyNHlfAYNWZ+1GhbOrCAJq5YwfZsPqN0yWRIfnzswlQhsJnrzTirtK/t9+3skXxLeNIZcr9hbpkGZGtzofwNs/IHA9TW21N9n61M8ms79egItUriziJoSq3XBp1FFUf1E5VRQ61CE0FKCQt+9DxjMDvPzV"
+    # Common secret for 39xx/51xx legacy (SAOS 6/8)
+    legacy_secret = "#A#ZlFm6R4dQ0uR4D6rOjaXTMIoNnKVa9BP+s1VMFnBseL+AN66GjfDOwDrLXWCDUZc2dpW54ThKyWUfwFHN+CL3/B+2uqaL2URdzrB8ecyNHlfAYNWZ+1GhbOrCAJq5YwfZsPqN0yWRIfnzswlQhsJnrzTirtK/t9+3skXxLeNIZcr9hbpkGZGtzofwNs/IHA9TW21N9n61M8ms79egItUriziJoSq3XBp1FFUf1E5VRQ61CE0FKCQt+9DxjMDvPzV"
     
     defaults_map = {
         "3903": {
@@ -88,23 +91,23 @@ def get_model_defaults(model: str) -> Dict[str, List[str]]:
             "license_keys": ["W9FOI8C7N3NIB4", "WAFOI8C7N3NJB6", "W61WI8C7N3NKXB"],
         },
         "3916": {
-            "tacacs_secret": default_secret,
+            "tacacs_secret": legacy_secret,
             "license_keys": ["W5FNI8C7N3YNM4", "W61WI8C7N3NKXB", "W9FNI8C7N3YLM6", "WAFNI8C7N3YMM8"],
         },
         "3926": {
-            "tacacs_secret": default_secret,
+            "tacacs_secret": legacy_secret,
             "license_keys": ["WDFTI8C7N430RW", "W5FTI8C7N431RP", "WCFTI8C7N432RX", "W6FTI8C7N433RS"],
         },
         "3928": {
-            "tacacs_secret": default_secret,
+            "tacacs_secret": legacy_secret,
             "license_keys": ["WDFUI8C7N3NLBH", "W5FUI8C7N4ZEN3", "WCFUI8C7N3NMBH", "W6FUI8C7N3NNBC"],
         },
-        # SAOS 10 Models (License Keys not typically used, but keeping placeholders)
-        "5142": {"tacacs_secret": default_secret, "license_keys": ["<5142-KEY-PLACEHOLDER>"]},
-        "5130": {"tacacs_secret": default_secret, "license_keys": []},
-        "5171": {"tacacs_secret": default_secret, "license_keys": []},
-        "8110": {"tacacs_secret": default_secret, "license_keys": []},
-        "8114": {"tacacs_secret": default_secret, "license_keys": []},
+        # SAOS 10 Models (Using New Secret)
+        "5142": {"tacacs_secret": legacy_secret, "license_keys": ["<5142-KEY-PLACEHOLDER>"]},
+        "5130": {"tacacs_secret": SAOS10_SECRET, "license_keys": []},
+        "5171": {"tacacs_secret": SAOS10_SECRET, "license_keys": []},
+        "8110": {"tacacs_secret": SAOS10_SECRET, "license_keys": []},
+        "8114": {"tacacs_secret": SAOS10_SECRET, "license_keys": []},
     }
     return defaults_map.get(m, {
         "tacacs_secret": "vault://ciena/default/tacacs",
