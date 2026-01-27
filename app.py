@@ -187,7 +187,7 @@ with col1:
     
     # License Logic: Keys vs Server IP
     if software_version == "saos10":
-        license_server_ip = st.text_input("LICENSE SERVER IP", value="10.0.1.20")
+        license_server_ip = st.text_input("LICENSE SERVER IP", value="172.20.0.246")
         license_keys_text = ""
     else:
         license_keys_text = st.text_area("LICENSE KEYS — 1 PER LINE", value="\n".join(model_defaults.get("license_keys", [])), height=100)

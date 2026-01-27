@@ -29,6 +29,7 @@ def list_templates() -> List[str]:
 def choose_template(model: str, backhaul: str, software: str = "", role: str = "", available_templates: Optional[List[str]] = None) -> str:
     """
     Selects the best template based on model, software version, backhaul type, and role.
+    SAFE MODE: Ensures the returned template actually exists.
     """
     model = (model or "").strip()
     backhaul = (backhaul or "").strip()
@@ -48,7 +49,7 @@ def choose_template(model: str, backhaul: str, software: str = "", role: str = "
     if model and software and backhaul:
         candidates.append(f"ciena_{model}_{software}_{backhaul}.cfg.j2")
 
-    # Priority 3: Generic SAOS 10 (NEW: Fallback for all saos10 devices)
+    # Priority 3: Generic SAOS 10 (Fallback for all saos10 devices)
     if software == "saos10":
         candidates.append("ciena_saos10.cfg.j2")
 
@@ -68,13 +69,20 @@ def choose_template(model: str, backhaul: str, software: str = "", role: str = "
     if model:
         candidates.append(f"ciena_{model}.cfg.j2")
         
+    # Priority 7: Explicit Generic
     candidates.append("ciena_generic.cfg.j2")
 
+    # --- SELECTION LOGIC ---
     for c in candidates:
         if c in available_templates:
             return c
 
-    # fallback: return generic name
+    # --- FALLBACK LOGIC (Prevents TemplateNotFound Error) ---
+    # If no match found, pick the FIRST available template to avoid crash
+    if available_templates:
+        return available_templates[0]
+
+    # If absolutely no files exist, return generic (will fail in render, but app.py should handle)
     return "ciena_generic.cfg.j2"
 
 
