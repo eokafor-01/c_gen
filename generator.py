@@ -72,17 +72,13 @@ def choose_template(model: str, backhaul: str, software: str = "", role: str = "
     # Priority 7: Explicit Generic
     candidates.append("ciena_generic.cfg.j2")
 
-    # --- SELECTION LOGIC ---
     for c in candidates:
         if c in available_templates:
             return c
 
-    # --- FALLBACK LOGIC (Prevents TemplateNotFound Error) ---
-    # If no match found, pick the FIRST available template to avoid crash
+    # FALLBACK: Return first available or generic to avoid crash
     if available_templates:
         return available_templates[0]
-
-    # If absolutely no files exist, return generic (will fail in render, but app.py should handle)
     return "ciena_generic.cfg.j2"
 
 
@@ -94,7 +90,7 @@ def render_template(template_name: str, context: Dict) -> str:
 def get_model_defaults(model: str) -> Dict[str, List[str]]:
     m = (model or "").strip()
     
-    # Common secret for 39xx/51xx legacy (SAOS 6/8)
+    # Common secret for 39xx/51xx legacy
     legacy_secret = "#A#ZlFm6R4dQ0uR4D6rOjaXTMIoNnKVa9BP+s1VMFnBseL+AN66GjfDOwDrLXWCDUZc2dpW54ThKyWUfwFHN+CL3/B+2uqaL2URdzrB8ecyNHlfAYNWZ+1GhbOrCAJq5YwfZsPqN0yWRIfnzswlQhsJnrzTirtK/t9+3skXxLeNIZcr9hbpkGZGtzofwNs/IHA9TW21N9n61M8ms79egItUriziJoSq3XBp1FFUf1E5VRQ61CE0FKCQt+9DxjMDvPzV"
     
     defaults_map = {
@@ -114,7 +110,6 @@ def get_model_defaults(model: str) -> Dict[str, List[str]]:
             "tacacs_secret": legacy_secret,
             "license_keys": ["WDFUI8C7N3NLBH", "W5FUI8C7N4ZEN3", "WCFUI8C7N3NMBH", "W6FUI8C7N3NNBC"],
         },
-        # SAOS 10 Models (Using New Secret)
         "5142": {"tacacs_secret": legacy_secret, "license_keys": ["<5142-KEY-PLACEHOLDER>"]},
         "5130": {"tacacs_secret": SAOS10_SECRET, "license_keys": []},
         "5171": {"tacacs_secret": SAOS10_SECRET, "license_keys": []},
@@ -140,52 +135,89 @@ def create_zip_from_dict(files: Dict[str, str]) -> bytes:
     return mem.getvalue()
 
 
+def _derive_saos10_link_id(local_host: str, remote_host: str) -> str:
+    """
+    Generates a link ID like 'AJO-IKJ8114' from hostnames.
+    Pattern: LocalSite-RemoteSiteRemoteModel
+    Example:
+      Local: NGA-AJO-CNA5130-01 -> AJO
+      Remote: NGA-IKJ-CNA8114-01 -> IKJ, 8114
+      Result: AJO-IKJ8114
+    """
+    if not local_host or not remote_host:
+        return ""
+    
+    # Extract Site (between first and second hyphen usually)
+    # NGA-AJO-... or AJO-...
+    def extract_site(s):
+        parts = s.split('-')
+        if len(parts) >= 2:
+            # If starts with NGA, take 2nd part. 
+            if len(parts[0]) == 3 and parts[0].isalpha(): 
+                return parts[1]
+            return parts[0] # Fallback
+        return s
+
+    local_site = extract_site(local_host)
+    remote_site = extract_site(remote_host)
+
+    # Extract Model from Remote (digits in the 3rd chunk usually)
+    # NGA-IKJ-CNA8114-01 -> 8114
+    remote_model = ""
+    match = re.search(r"[A-Z]+(\d{4})", remote_host) # matches CNA8114
+    if match:
+        remote_model = match.group(1)
+
+    return f"{local_site}-{remote_site}{remote_model}"
+
+
 def _build_interfaces_from_backhaul(dev: Dict) -> List[Dict]:
     interfaces = []
     backhaul = dev.get("backhaul", "") or ""
     aggregation_enabled = bool(dev.get("aggregation_enabled"))
+    is_saos10 = dev.get("software_version") == "saos10"
+    local_host = dev.get("hostname", "")
 
     def normalize_port(port_raw):
         if isinstance(port_raw, (list, tuple)):
             return str(port_raw[0]) if port_raw else ""
         return str(port_raw or "")
 
-    if backhaul == "single":
-        port = normalize_port(dev.get("single_port"))
-        interfaces.append({
-            "name": dev.get("single_if_name") or (f"Port_{port}" if port else "Port_BH"),
+    def create_iface(prefix, idx):
+        port_raw = dev.get(f"{prefix}_port")
+        port = normalize_port(port_raw)
+        
+        # Name logic: SAOS 6/8 uses Port_X, SAOS 10 uses Link ID if avail
+        base_name = dev.get(f"{prefix}_if_name") or (f"Port_{port}" if port else "Port_BH")
+        neighbor = dev.get(f"{prefix}_neighbor_name")
+        
+        link_id = ""
+        if is_saos10 and neighbor:
+            link_id = _derive_saos10_link_id(local_host, neighbor)
+
+        return {
+            "name": base_name,
             "description": "BACKHAUL",
-            "vlan": dev.get("single_vlan"),
-            "ip": dev.get("single_ip"),
-            "mtu": dev.get("single_mtu"),
-            "port": dev.get("aggregation_name") if aggregation_enabled else dev.get("single_port"),
-            "neighbor_name": dev.get("single_neighbor_name"),
-            "neighbor_port": dev.get("single_neighbor_port"),
-            "neighbor_ip": dev.get("single_neighbor_ip"),
-        })
-        interfaces.extend(dev.get("other_interfaces") or [])
-        return interfaces
+            "vlan": dev.get(f"{prefix}_vlan"),
+            "ip": dev.get(f"{prefix}_ip"),
+            "mtu": dev.get(f"{prefix}_mtu"),
+            "port": dev.get("aggregation_name") if aggregation_enabled and backhaul == "single" else (
+                dev.get("aggregations")[idx]["name"] if aggregation_enabled and backhaul == "dual" else port
+            ),
+            "neighbor_name": neighbor,
+            "neighbor_port": dev.get(f"{prefix}_neighbor_port"),
+            "neighbor_ip": dev.get(f"{prefix}_neighbor_ip"),
+            "saos10_link_id": link_id # Pass generated ID to template
+        }
 
-    if backhaul == "dual":
-        for i in ("primary", "secondary"):
-            port = normalize_port(dev.get(f"{i}_port"))
-            interfaces.append({
-                "name": dev.get(f"{i}_if_name") or (f"Port_{port}" if port else "Port_BH"),
-                "description": "BACKHAUL",
-                "vlan": dev.get(f"{i}_vlan"),
-                "ip": dev.get(f"{i}_ip"),
-                "mtu": dev.get(f"{i}_mtu"),
-                "port": dev.get(f"{i}_port") if dev.get(f"{i}_port") is not None else (
-                    dev.get("aggregations")[0 if i == "primary" else 1]["name"] if aggregation_enabled and dev.get("aggregations") else None
-                ),
-                "neighbor_name": dev.get(f"{i}_neighbor_name"),
-                "neighbor_port": dev.get(f"{i}_neighbor_port"),
-                "neighbor_ip": dev.get(f"{i}_neighbor_ip"),
-            })
-        interfaces.extend(dev.get("other_interfaces") or [])
-        return interfaces
+    if backhaul == "single":
+        interfaces.append(create_iface("single", 0))
+    elif backhaul == "dual":
+        interfaces.append(create_iface("primary", 0))
+        interfaces.append(create_iface("secondary", 1))
 
-    return dev.get("other_interfaces") or []
+    interfaces.extend(dev.get("other_interfaces") or [])
+    return interfaces
 
 
 def render_device(dev: Dict, available_templates: Optional[List[str]] = None) -> Tuple[str, str, str]:
@@ -195,7 +227,7 @@ def render_device(dev: Dict, available_templates: Optional[List[str]] = None) ->
     model = str(dev.get("model") or "").strip()
     model_defaults = get_model_defaults(model)
 
-    dev = dict(dev)  # shallow copy to avoid mutating caller
+    dev = dict(dev)  # shallow copy
     if not dev.get("tacacs_secret"):
         dev["tacacs_secret"] = model_defaults.get("tacacs_secret")
     if not dev.get("license_keys"):

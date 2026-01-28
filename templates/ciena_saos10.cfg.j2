@@ -22,8 +22,8 @@ classifiers classifier '{{ iface.vlan }}' filter-entry 'classifier:vtag-stack' v
 
 {# --- 2. Create FDs, FPs, and Interfaces --- #}
 {%- for iface in interfaces if iface.description == 'BACKHAUL' %}
-{# Determine Neighbor Name #}
-{%- set neighbor = iface.neighbor_name | default("REMOTE_" ~ loop.index, true) %}
+{# Use generated Link ID (e.g., AJO-IKJ8114) if available #}
+{%- set neighbor = iface.saos10_link_id | default(iface.neighbor_name) | default("REMOTE_" ~ loop.index, true) %}
 {%- set fd_name = "FD_" ~ neighbor %}
 
 {# Parse IP and Prefix safely #}
@@ -42,9 +42,10 @@ fds fd '{{ fd_name }}' mode vpls initiate-cos-to-frame-map "default-c2f" initiat
 {# Create FP #}
 {# Use VLAN in name only if it exists #}
 {%- set vlan_part = iface.vlan if iface.vlan else "NOVLAN" %}
-{%- set fp_name = "fp_" ~ vlan_part ~ "_" ~ iface.name %}
+{# FP Name Format: fp_<vlan>_<port> (e.g., fp_523_14) #}
+{%- set fp_name = "fp_" ~ vlan_part ~ "_" ~ iface.port %}
 
-fps fp '{{ fp_name }}' fd-name "{{ fd_name }}" logical-port "{{ iface.name }}" mtu-size 9216 frame-to-cos-map "default-f2c" cos-to-frame-map "default-c2f" classifier-list-precedence 7 stats-collection off classifier-list "{{ iface.vlan }}"
+fps fp '{{ fp_name }}' fd-name "{{ fd_name }}" logical-port "{{ iface.port }}" mtu-size 9216 frame-to-cos-map "default-f2c" cos-to-frame-map "default-c2f" classifier-list-precedence 7 stats-collection off classifier-list "{{ iface.vlan }}"
 fps fp '{{ fp_name }}' egress-l2-transform '{{ iface.vlan }}' vlan-stack '1' push-vid {{ iface.vlan }}
 
 {# Create IP Interface #}
@@ -58,7 +59,6 @@ oc-if:interfaces interface '{{ neighbor }}' ipv4 addresses address '{{ ip_addr }
 {# --- 3. Physical Port Descriptions (When Aggregation Disabled) --- #}
 {%- for iface in interfaces if iface.description == 'BACKHAUL' %}
 {%- if not aggregation_enabled and iface.neighbor_name %}
-{# Only generate description if we have neighbor info #}
 logical-ports logical-port '{{ iface.port }}' mtu 9800 description "TO {{ iface.neighbor_name }} PORT {{ iface.neighbor_port }}"
 {%- endif %}
 {%- endfor %}
@@ -128,27 +128,4 @@ snmp target 'NetbossMon' target-params "NetbossMonV2C" udp ip "10.0.141.2"
 snmp target 'NetbossMon' tag "cienaTag"
 snmp target 'MCP-serverMon' target-params "MCP-serverMonV2C" udp ip "172.20.0.249"
 snmp target 'MCP-serverMon' tag "cienaTag2"
-snmp target 'MCP-serverMon2' target-params "MCP-serverMonV2C" udp ip "172.20.0.226"
-snmp target 'MCP-serverMon2' tag "cienaTag2"
-snmp target-params 'NetbossMonV2C' v2c security-name "SEC-V2C"
-snmp target-params 'MCP-serverMonV2C' v2c security-name "SEC-V2C"
-snmp notify 'test-notify' tag "cienaTag2"
-snmp community 't2' text-name "5p@jXK%PbYC0jA0" security-name "SEC-V2C"
-snmp vacm group 'CienaGroup' member 'SEC-V2C' security-model v2c
-snmp vacm group 'CienaGroup' access '' 'v2c' 'no-auth-no-priv' read-view "Netboss" notify-view "Netboss"
-snmp vacm view 'Netboss' include "internet"
-
-[welcome banner]
-system config motd-banner "*This system is for the use of authorized users only. Individuals using this system without authority or in excess of their authority, are subject to having all of the activities on this system monitored and recorded by system personnel. In the course of monitoring individuals improperly using system, or in the course of system maintenance, the activities of authorized users may also be monitored. Anyone using this system expressly consents to such monitoring and is advised if such monitoring reveals possible evidence of criminal activity, system personnel may provide the evidence to law enforcement officials"
-
-[Maintenance Domain for CFM]
-maintenance-domain 'md3' name-type character-string name "md3" mhf-creation none id-permission chassis
-
-
-[remove ztp]
-config
-{%- set max_p = ztp_max_ports | default(10) %}
-{%- for i in range(1, max_p + 1) %}
-no fps fp remote-fp{{ i }}
-{%- endfor %}
-exit
+snmp target 'MCP-serverMon2' target-params "MCP-serverMonV2C" udp ip "172.20
