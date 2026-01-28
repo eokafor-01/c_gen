@@ -45,10 +45,16 @@ logical-ports logical-port '{{ agg.name }}' mtu 9800 description "{{ agg_desc }}
 {# Determine Neighbor Name #}
 {%- set neighbor = iface.neighbor_name | default("REMOTE_" ~ loop.index, true) %}
 {%- set fd_name = "FD_" ~ neighbor %}
-{# Parse IP and Prefix #}
-{%- set ip_parts = iface.ip.split('/') %}
-{%- set ip_addr = ip_parts[0] %}
-{%- set prefix = ip_parts[1] %}
+
+{# Parse IP and Prefix safely #}
+{%- if iface.ip %}
+    {%- set ip_parts = iface.ip.split('/') %}
+    {%- set ip_addr = ip_parts[0] %}
+    {%- set prefix = ip_parts[1] %}
+{%- else %}
+    {%- set ip_addr = "0.0.0.0" %}
+    {%- set prefix = "0" %}
+{%- endif %}
 
 {# Create FD #}
 fds fd '{{ fd_name }}' mode vpls initiate-cos-to-frame-map "default-c2f" initiate-frame-to-cos-map "default-f2c"
@@ -60,13 +66,19 @@ fps fp '{{ fp_name }}' egress-l2-transform '{{ iface.vlan }}' vlan-stack '1' pus
 
 {# Create IP Interface #}
 oc-if:interfaces interface '{{ neighbor }}' config name "{{ neighbor }}" mtu 9136 stats-collection off type ip underlay-binding config fd "{{ fd_name }}"
+{%- if iface.ip %}
 oc-if:interfaces interface '{{ neighbor }}' ipv4 addresses address '{{ ip_addr }}' config ip "{{ ip_addr }}" prefix-length {{ prefix }}
+{%- else %}
+{# Warning: No IP provided for this interface #}
+{%- endif %}
 
 {%- endfor %}
 
 [configure OSPF]
 {%- for iface in interfaces if iface.description == 'BACKHAUL' %}
+{%- if iface.ip %}
 ospf instance '1' areas area '0.0.0.0' network '{{ iface.ip }}'
+{%- endif %}
 {%- endfor %}
 {%- if loopback_ip %}
 ospf instance '1' areas area '0.0.0.0' network '{{ loopback_ip }}/32'
