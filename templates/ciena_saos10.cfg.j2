@@ -54,7 +54,7 @@ logical-ports logical-port '{{ iface.port }}' mtu 9800 description "TO {{ iface.
 {% endif %}
 {% endfor %}
 
-{# --- 4. Create Aggregations (LAGs) --- #}
+{# --- 4a. Create Aggregations (LAGs) --- #}
 {% if aggregation_enabled and aggregations %}
 {% for agg in aggregations %}
 {% if agg.name %}
@@ -72,6 +72,22 @@ oc-if:interfaces interface '{{ agg.name }}' config agg member-ports '{{ member }
 logical-ports logical-port '{{ agg.name }}' mtu 9800 description "{{ agg_desc }}"
 {% endif %}
 {% endfor %}
+
+{# --- 4b. Physical Port Descriptions (Aggregation Members) --- #}
+{% for agg in aggregations %}
+    {# Find the description associated with this LAG #}
+    {% set ns = namespace(desc="LAG MEMBER") %}
+    {% for iface in interfaces if iface.port == agg.name %}
+        {% if iface.neighbor_name %}
+            {% set ns.desc = "TO " ~ iface.neighbor_name ~ " PORT " ~ iface.neighbor_port %}
+        {% endif %}
+    {% endfor %}
+    {# Apply to all members #}
+    {% for member in agg.members %}
+logical-ports logical-port '{{ member }}' mtu 9800 description "{{ ns.desc }}"
+    {% endfor %}
+{% endfor %}
+
 {% endif %}
 
 [configure OSPF]

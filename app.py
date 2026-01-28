@@ -200,14 +200,14 @@ with col2:
         if model != "3903":
             aggregation_enabled = st.checkbox("ENABLE AGGREGATION", value=False)
 
-        single_port = st.selectbox("PORT", options=available_ports, index=0, key="single_port")
+        # UI LOGIC FIX: Show EITHER selectbox OR multiselect, not both
         if aggregation_enabled:
-             # In simple aggregation logic, primary port is usually the main selector or user picks member list
-             # Adjusted for UI simplicity:
              single_port = st.multiselect("AGG MEMBER PORTS", options=available_ports, default=available_ports[:1], key="single_agg_members")
              aggregation_name = st.text_input("AGG NAME", value="Agg_1")
+        else:
+             single_port = st.selectbox("PORT", options=available_ports, index=0, key="single_port")
         
-        # MOVED UP: Neighbor Details (To allow auto-calculation of Interface Name)
+        # Neighbor Details
         st.markdown("**NEIGHBOR (REMOTE) DETAILS**")
         n_col1, n_col2, n_col3 = st.columns(3)
         with n_col1:
@@ -218,7 +218,10 @@ with col2:
             single_neighbor_ip = st.text_input("NEIGHBOR IP", key="sn_ip")
 
         # Dynamic Interface Name Calculation
-        default_if_name = f"Port_{single_port}"
+        # Handle single_port possibly being a list
+        port_suffix = single_port[0] if isinstance(single_port, list) and single_port else single_port
+        default_if_name = f"Port_{port_suffix}"
+        
         if software_version == "saos10" and single_neighbor_name:
             default_if_name = derive_link_id(hostname, single_neighbor_name)
         elif aggregation_enabled:
@@ -237,12 +240,15 @@ with col2:
 
         # Primary
         st.markdown("**PRIMARY BACKHAUL**")
-        primary_port = st.selectbox("PRIMARY PORT", options=available_ports, index=0, key="primary_port")
+        
+        # UI LOGIC FIX: Primary
         if aggregation_enabled:
              primary_port = st.multiselect("PRIMARY AGG MEMBERS", options=available_ports, default=available_ports[:1], key="primary_agg_members")
              primary_agg_name = st.text_input("PRIMARY AGG NAME", value="PrimaryAgg")
+        else:
+             primary_port = st.selectbox("PRIMARY PORT", options=available_ports, index=0, key="primary_port")
 
-        # MOVED UP: Primary Neighbor
+        # Primary Neighbor
         pn_col1, pn_col2, pn_col3 = st.columns(3)
         with pn_col1:
             primary_neighbor_name = st.text_input("NEIGHBOR NAME", key="pn_name")
@@ -252,7 +258,9 @@ with col2:
             primary_neighbor_ip = st.text_input("NEIGHBOR IP", key="pn_ip")
 
         # Dynamic Name Primary
-        default_p_if_name = f"Port_{primary_port}"
+        p_port_suffix = primary_port[0] if isinstance(primary_port, list) and primary_port else primary_port
+        default_p_if_name = f"Port_{p_port_suffix}"
+        
         if software_version == "saos10" and primary_neighbor_name:
             default_p_if_name = derive_link_id(hostname, primary_neighbor_name)
         elif aggregation_enabled:
@@ -267,12 +275,15 @@ with col2:
         # Secondary
         st.markdown("---")
         st.markdown("**SECONDARY BACKHAUL**")
-        secondary_port = st.selectbox("SECONDARY PORT", options=available_ports, index=1 if len(available_ports)>1 else 0, key="secondary_port")
+        
+        # UI LOGIC FIX: Secondary
         if aggregation_enabled:
              secondary_port = st.multiselect("SECONDARY AGG MEMBERS", options=available_ports, default=available_ports[1:2] if len(available_ports)>1 else available_ports[:1], key="secondary_agg_members")
              secondary_agg_name = st.text_input("SECONDARY AGG NAME", value="SecondaryAgg")
+        else:
+             secondary_port = st.selectbox("SECONDARY PORT", options=available_ports, index=1 if len(available_ports)>1 else 0, key="secondary_port")
 
-        # MOVED UP: Secondary Neighbor
+        # Secondary Neighbor
         sn_col1, sn_col2, sn_col3 = st.columns(3)
         with sn_col1:
             secondary_neighbor_name = st.text_input("NEIGHBOR NAME", key="secn_name")
@@ -282,7 +293,9 @@ with col2:
             secondary_neighbor_ip = st.text_input("NEIGHBOR IP", key="secn_ip")
 
         # Dynamic Name Secondary
-        default_s_if_name = f"Port_{secondary_port}"
+        s_port_suffix = secondary_port[0] if isinstance(secondary_port, list) and secondary_port else secondary_port
+        default_s_if_name = f"Port_{s_port_suffix}"
+        
         if software_version == "saos10" and secondary_neighbor_name:
             default_s_if_name = derive_link_id(hostname, secondary_neighbor_name)
         elif aggregation_enabled:
