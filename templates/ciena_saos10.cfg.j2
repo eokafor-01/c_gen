@@ -20,9 +20,9 @@ classifiers classifier '{{ iface.vlan }}' filter-entry 'classifier:vtag-stack' v
 
 {# --- 2. Create FDs, FPs, and Interfaces --- #}
 {% for iface in interfaces if iface.description == 'BACKHAUL' %}
-{# Variables #}
-{% set neighbor = iface.neighbor_name if iface.neighbor_name else "REMOTE_" ~ loop.index %}
-{% set fd_name = "FD_" ~ neighbor %}
+{# Use IF NAME from UI (e.g., AJO-IKJ8114) for FD and Interface Identifiers #}
+{% set if_name = iface.name %}
+{% set fd_name = "FD_" ~ if_name %}
 {% set fp_name = "fp_" ~ (iface.vlan if iface.vlan else 'NOVLAN') ~ "_" ~ iface.port %}
 
 {# IP Parsing #}
@@ -40,9 +40,9 @@ fds fd '{{ fd_name }}' mode vpls initiate-cos-to-frame-map "default-c2f" initiat
 fps fp '{{ fp_name }}' fd-name "{{ fd_name }}" logical-port "{{ iface.port }}" mtu-size 9216 frame-to-cos-map "default-f2c" cos-to-frame-map "default-c2f" classifier-list-precedence 7 stats-collection off classifier-list "{{ iface.vlan }}"
 fps fp '{{ fp_name }}' egress-l2-transform '{{ iface.vlan }}' vlan-stack '1' push-vid {{ iface.vlan }}
 
-oc-if:interfaces interface '{{ neighbor }}' config name "{{ neighbor }}" mtu 9136 stats-collection off type ip underlay-binding config fd "{{ fd_name }}"
+oc-if:interfaces interface '{{ if_name }}' config name "{{ if_name }}" mtu 9136 stats-collection off type ip underlay-binding config fd "{{ fd_name }}"
 {% if iface.ip %}
-oc-if:interfaces interface '{{ neighbor }}' ipv4 addresses address '{{ ip_addr }}' config ip "{{ ip_addr }}" prefix-length {{ prefix }}
+oc-if:interfaces interface '{{ if_name }}' ipv4 addresses address '{{ ip_addr }}' config ip "{{ ip_addr }}" prefix-length {{ prefix }}
 {% endif %}
 
 {% endfor %}
