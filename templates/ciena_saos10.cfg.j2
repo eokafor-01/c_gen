@@ -10,15 +10,58 @@ oc-if:interfaces interface 'lb0' ipv4 addresses address '{{ loopback_ip }}' conf
 {% endif %}
 management-plane default-source-ip interface lb0
 
+
 [configure ip interface]
-{# --- 1. Create Classifiers --- #}
+{# --- 1. Physical Port Descriptions (When Aggregation Disabled) --- #}
+{% for iface in interfaces if iface.description == 'BACKHAUL' %}
+{% if not aggregation_enabled and iface.neighbor_name %}
+logical-ports logical-port '{{ iface.port }}' mtu 9800 description "TO {{ iface.neighbor_name }} PORT {{ iface.neighbor_port }}"
+{% endif %}
+{% endfor %}
+
+{# --- 2a. Create Aggregations (LAGs) --- #}
+{% if aggregation_enabled and aggregations %}
+{% for agg in aggregations %}
+{% if agg.name %}
+oc-if:interfaces interface '{{ agg.name }}' config name "{{ agg.name }}" type lag
+{% for member in agg.members %}
+oc-if:interfaces interface '{{ agg.name }}' config agg member-ports '{{ member }}'
+{% endfor %}
+{# Lag Description #}
+{% set agg_desc = "AGGREGATION " ~ agg.name %}
+{% for iface in interfaces if iface.port == agg.name %}
+{% if iface.neighbor_name %}
+{% set agg_desc = "TO " ~ iface.neighbor_name ~ " PORT " ~ iface.neighbor_port %}
+{% endif %}
+{% endfor %}
+logical-ports logical-port '{{ agg.name }}' mtu 9800 description "{{ agg_desc }}"
+{% endif %}
+{% endfor %}
+
+{# --- 2b. Physical Port Descriptions (Aggregation Members) --- #}
+{% for agg in aggregations %}
+    {# Find the description associated with this LAG #}
+    {% set ns = namespace(desc="LAG MEMBER") %}
+    {% for iface in interfaces if iface.port == agg.name %}
+        {% if iface.neighbor_name %}
+            {% set ns.desc = "TO " ~ iface.neighbor_name ~ " PORT " ~ iface.neighbor_port %}
+        {% endif %}
+    {% endfor %}
+    {# Apply to all members #}
+    {% for member in agg.members %}
+logical-ports logical-port '{{ member }}' mtu 9800 description "{{ ns.desc }}"
+    {% endfor %}
+{% endfor %}
+
+{% endif %}
+{# --- 3. Create Classifiers --- #}
 {% for iface in interfaces if iface.description == 'BACKHAUL' %}
 {% if iface.vlan %}
 classifiers classifier '{{ iface.vlan }}' filter-entry 'classifier:vtag-stack' vtags '1' vlan-id {{ iface.vlan }}
 {% endif %}
 {% endfor %}
 
-{# --- 2. Create FDs, FPs, and Interfaces --- #}
+{# --- 4. Create FDs, FPs, and Interfaces --- #}
 {% for iface in interfaces if iface.description == 'BACKHAUL' %}
 {# Use IF NAME from UI (e.g., AJO-IKJ8114) for FD and Interface Identifiers #}
 {% set if_name = iface.name %}
@@ -47,48 +90,6 @@ oc-if:interfaces interface '{{ if_name }}' ipv4 addresses address '{{ ip_addr }}
 
 {% endfor %}
 
-{# --- 3. Physical Port Descriptions (When Aggregation Disabled) --- #}
-{% for iface in interfaces if iface.description == 'BACKHAUL' %}
-{% if not aggregation_enabled and iface.neighbor_name %}
-logical-ports logical-port '{{ iface.port }}' mtu 9800 description "TO {{ iface.neighbor_name }} PORT {{ iface.neighbor_port }}"
-{% endif %}
-{% endfor %}
-
-{# --- 4a. Create Aggregations (LAGs) --- #}
-{% if aggregation_enabled and aggregations %}
-{% for agg in aggregations %}
-{% if agg.name %}
-oc-if:interfaces interface '{{ agg.name }}' config name "{{ agg.name }}" type lag
-{% for member in agg.members %}
-oc-if:interfaces interface '{{ agg.name }}' config agg member-ports '{{ member }}'
-{% endfor %}
-{# Lag Description #}
-{% set agg_desc = "AGGREGATION " ~ agg.name %}
-{% for iface in interfaces if iface.port == agg.name %}
-{% if iface.neighbor_name %}
-{% set agg_desc = "TO " ~ iface.neighbor_name ~ " PORT " ~ iface.neighbor_port %}
-{% endif %}
-{% endfor %}
-logical-ports logical-port '{{ agg.name }}' mtu 9800 description "{{ agg_desc }}"
-{% endif %}
-{% endfor %}
-
-{# --- 4b. Physical Port Descriptions (Aggregation Members) --- #}
-{% for agg in aggregations %}
-    {# Find the description associated with this LAG #}
-    {% set ns = namespace(desc="LAG MEMBER") %}
-    {% for iface in interfaces if iface.port == agg.name %}
-        {% if iface.neighbor_name %}
-            {% set ns.desc = "TO " ~ iface.neighbor_name ~ " PORT " ~ iface.neighbor_port %}
-        {% endif %}
-    {% endfor %}
-    {# Apply to all members #}
-    {% for member in agg.members %}
-logical-ports logical-port '{{ member }}' mtu 9800 description "{{ ns.desc }}"
-    {% endfor %}
-{% endfor %}
-
-{% endif %}
 
 [configure OSPF]
 {% for iface in interfaces if iface.description == 'BACKHAUL' %}
