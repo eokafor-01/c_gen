@@ -20,27 +20,7 @@ classifiers classifier '{{ iface.vlan }}' filter-entry 'classifier:vtag-stack' v
 {%- endif %}
 {%- endfor %}
 
-{# --- 2. Create Aggregations (LAGs) if enabled --- #}
-{%- if aggregation_enabled and aggregations %}
-{%- for agg in aggregations %}
-{%- if agg.name %}
-oc-if:interfaces interface '{{ agg.name }}' config name "{{ agg.name }}" type lag
-{%- for member in agg.members %}
-oc-if:interfaces interface '{{ agg.name }}' config agg member-ports '{{ member }}'
-{%- endfor %}
-{# Description logic: try to find which neighbor this agg connects to #}
-{%- set agg_desc = "AGGREGATION " ~ agg.name %}
-{%- for iface in interfaces if iface.port == agg.name %}
-{%- if iface.neighbor_name %}
-{%- set agg_desc = "TO " ~ iface.neighbor_name ~ " PORT " ~ iface.neighbor_port %}
-{%- endif %}
-{%- endfor %}
-logical-ports logical-port '{{ agg.name }}' mtu 9800 description "{{ agg_desc }}"
-{%- endif %}
-{%- endfor %}
-{%- endif %}
-
-{# --- 3. Create FDs, FPs, and Interfaces --- #}
+{# --- 2. Create FDs, FPs, and Interfaces --- #}
 {%- for iface in interfaces if iface.description == 'BACKHAUL' %}
 {# Determine Neighbor Name #}
 {%- set neighbor = iface.neighbor_name | default("REMOTE_" ~ loop.index, true) %}
@@ -60,7 +40,10 @@ logical-ports logical-port '{{ agg.name }}' mtu 9800 description "{{ agg_desc }}
 fds fd '{{ fd_name }}' mode vpls initiate-cos-to-frame-map "default-c2f" initiate-frame-to-cos-map "default-f2c"
 
 {# Create FP #}
-{%- set fp_name = "fp_" ~ iface.vlan ~ "_" ~ iface.name %}
+{# Use VLAN in name only if it exists #}
+{%- set vlan_part = iface.vlan if iface.vlan else "NOVLAN" %}
+{%- set fp_name = "fp_" ~ vlan_part ~ "_" ~ iface.name %}
+
 fps fp '{{ fp_name }}' fd-name "{{ fd_name }}" logical-port "{{ iface.name }}" mtu-size 9216 frame-to-cos-map "default-f2c" cos-to-frame-map "default-c2f" classifier-list-precedence 7 stats-collection off classifier-list "{{ iface.vlan }}"
 fps fp '{{ fp_name }}' egress-l2-transform '{{ iface.vlan }}' vlan-stack '1' push-vid {{ iface.vlan }}
 
@@ -68,11 +51,37 @@ fps fp '{{ fp_name }}' egress-l2-transform '{{ iface.vlan }}' vlan-stack '1' pus
 oc-if:interfaces interface '{{ neighbor }}' config name "{{ neighbor }}" mtu 9136 stats-collection off type ip underlay-binding config fd "{{ fd_name }}"
 {%- if iface.ip %}
 oc-if:interfaces interface '{{ neighbor }}' ipv4 addresses address '{{ ip_addr }}' config ip "{{ ip_addr }}" prefix-length {{ prefix }}
-{%- else %}
-{# Warning: No IP provided for this interface #}
 {%- endif %}
 
 {%- endfor %}
+
+{# --- 3. Physical Port Descriptions (When Aggregation Disabled) --- #}
+{%- for iface in interfaces if iface.description == 'BACKHAUL' %}
+{%- if not aggregation_enabled and iface.neighbor_name %}
+{# Only generate description if we have neighbor info #}
+logical-ports logical-port '{{ iface.port }}' mtu 9800 description "TO {{ iface.neighbor_name }} PORT {{ iface.neighbor_port }}"
+{%- endif %}
+{%- endfor %}
+
+{# --- 4. Create Aggregations (LAGs) if enabled --- #}
+{%- if aggregation_enabled and aggregations %}
+{%- for agg in aggregations %}
+{%- if agg.name %}
+oc-if:interfaces interface '{{ agg.name }}' config name "{{ agg.name }}" type lag
+{%- for member in agg.members %}
+oc-if:interfaces interface '{{ agg.name }}' config agg member-ports '{{ member }}'
+{%- endfor %}
+{# Description logic: try to find which neighbor this agg connects to #}
+{%- set agg_desc = "AGGREGATION " ~ agg.name %}
+{%- for iface in interfaces if iface.port == agg.name %}
+{%- if iface.neighbor_name %}
+{%- set agg_desc = "TO " ~ iface.neighbor_name ~ " PORT " ~ iface.neighbor_port %}
+{%- endif %}
+{%- endfor %}
+logical-ports logical-port '{{ agg.name }}' mtu 9800 description "{{ agg_desc }}"
+{%- endif %}
+{%- endfor %}
+{%- endif %}
 
 [configure OSPF]
 {%- for iface in interfaces if iface.description == 'BACKHAUL' %}
