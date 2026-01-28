@@ -24,9 +24,31 @@ PORT_RANGES = {
     "8114": [str(i) for i in range(1, 21)]
 }
 
+def derive_link_id(local_host: str, remote_host: str) -> str:
+    """Helper to derive AJO-IKJ8114 style names in the UI."""
+    if not local_host or not remote_host:
+        return ""
+    
+    def extract_site(s):
+        parts = s.split('-')
+        if len(parts) >= 2:
+            if len(parts[0]) == 3 and parts[0].isalpha(): 
+                return parts[1]
+            return parts[0]
+        return s
+
+    local_site = extract_site(local_host)
+    remote_site = extract_site(remote_host)
+    
+    remote_model = ""
+    match = re.search(r"[A-Z]+(\d{4})", remote_host)
+    if match:
+        remote_model = match.group(1)
+
+    return f"{local_site}-{remote_site}{remote_model}"
+
 
 def build_device_from_inputs(inputs: Dict) -> Dict:
-    # Normalize and convert common fields
     dev = {
         "hostname": inputs["hostname"],
         "model": inputs["model"],
@@ -40,8 +62,7 @@ def build_device_from_inputs(inputs: Dict) -> Dict:
         "syslog_collectors": [{"addr": s, "severity": "emergency,alert,error,warning,notice,info,debug"} for s in inputs.get("syslog_collectors", [])],
         "_generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z",
     }
-
-    # Calculate Max Ports for ZTP Removal Script
+    
     model_ports = PORT_RANGES.get(inputs["model"], [])
     dev["ztp_max_ports"] = len(model_ports) if model_ports else 10
 
@@ -49,23 +70,18 @@ def build_device_from_inputs(inputs: Dict) -> Dict:
     dev["aggregation_enabled"] = bool(agg_enabled)
 
     if agg_enabled:
-        # handle single aggregation
         if inputs["backhaul"] == "single":
             dev["aggregation_name"] = inputs.get("aggregation_name") or None
             dev["aggregation_members"] = inputs.get("single_port") or []
             dev["single_ip"] = f"{inputs['single_ip'].strip()}/{inputs['single_prefix']}" if inputs.get("single_ip") else None
             dev["single_vlan"] = int(inputs["single_vlan"]) if inputs.get("single_vlan") else None
-            dev["single_if_name"] = inputs.get("single_if_name") or (f"Agg_{dev['aggregation_members'][0]}" if dev["aggregation_members"] else None)
+            dev["single_if_name"] = inputs.get("single_if_name")
             dev["single_mtu"] = int(inputs["single_mtu"]) if inputs.get("single_mtu") else None
-            
-            # Neighbor details
             dev["single_neighbor_name"] = inputs.get("single_neighbor_name")
             dev["single_neighbor_port"] = inputs.get("single_neighbor_port")
             dev["single_neighbor_ip"] = inputs.get("single_neighbor_ip")
-            
             dev["aggregations"] = [{"name": dev["aggregation_name"], "members": dev["aggregation_members"]}]
         else:
-            # dual aggregation
             primary_members = inputs.get("primary_port") or []
             secondary_members = inputs.get("secondary_port") or []
             dev.update({
@@ -91,15 +107,12 @@ def build_device_from_inputs(inputs: Dict) -> Dict:
                 ],
             })
     else:
-        # no aggregation: set ports/ips directly based on backhaul
         if inputs["backhaul"] == "single":
             dev["single_port"] = inputs.get("single_port")
             dev["single_ip"] = f"{inputs['single_ip'].strip()}/{inputs['single_prefix']}" if inputs.get("single_ip") else None
             dev["single_vlan"] = int(inputs["single_vlan"]) if inputs.get("single_vlan") else None
             dev["single_if_name"] = inputs.get("single_if_name")
             dev["single_mtu"] = int(inputs["single_mtu"]) if inputs.get("single_mtu") else None
-            
-            # Neighbor details
             dev["single_neighbor_name"] = inputs.get("single_neighbor_name")
             dev["single_neighbor_port"] = inputs.get("single_neighbor_port")
             dev["single_neighbor_ip"] = inputs.get("single_neighbor_ip")
@@ -122,18 +135,16 @@ def build_device_from_inputs(inputs: Dict) -> Dict:
             dev["secondary_neighbor_port"] = inputs.get("secondary_neighbor_port")
             dev["secondary_neighbor_ip"] = inputs.get("secondary_neighbor_ip")
 
-    # optional fields
     if (inputs["model"].isdigit() and int(inputs["model"]) > 3903) or inputs["model"] in ["5142", "5130", "5171", "8110", "8114"]:
         if inputs.get("loopback_ip"):
             dev["loopback_ip"] = inputs["loopback_ip"]
-    
     if inputs["model"] == "3903" and inputs.get("gateway"):
         dev["gateway"] = inputs["gateway"]
 
     return dev
 
 
-st.set_page_config(page_title="CIENA CONFIG - UPDATED UI", layout="wide")
+st.set_page_config(page_title="CIENA CONFIG", layout="wide")
 st.title("CIENA COMMISSIONING CONFIG GENERATOR")
 
 st.sidebar.header("OPTIONS")
@@ -144,26 +155,19 @@ if available_templates:
         st.sidebar.markdown(f"- `{t}`")
 else:
     st.sidebar.info("NO TEMPLATES FOUND IN ./templates")
-
-st.sidebar.markdown("---")
 append_ts = st.sidebar.checkbox("APPEND TIMESTAMP TO FILENAME", value=True)
 
 st.header("DEVICE INPUT (SINGLE HOSTNAME)")
 col1, col2 = st.columns(2)
 
 with col1:
-    hostname = st.text_input("HOSTNAME (SINGLE DEVICE)", value="CIENA-01").strip()
+    hostname = st.text_input("HOSTNAME (SINGLE DEVICE)", value="NGA-AJO-CNA5130-01").strip()
     
-    # Model Selection
     m_col1, m_col2 = st.columns(2)
     with m_col1:
         model = st.selectbox("MODEL", MODELS)
-    
-    # Determine default software index based on model
     default_sw_ix = 2 if model in SAOS10_MODELS else 0
-    
     with m_col2:
-        # Use key to force reset when model changes
         software_version = st.selectbox("SOFTWARE VERSION", SOFTWARE_TYPES, index=default_sw_ix, key=f"sw_ver_{model}")
 
     backhaul_options = ["single"] if model == "3903" else ["single", "dual"]
@@ -171,55 +175,39 @@ with col1:
 
     col3, col4 = st.columns(2)
     with col3:
-        tacacs_server_1 = st.text_input("TACACS SERVER 1 (IP)", value="10.0.141.210")
+        tacacs_server_1 = st.text_input("TACACS SERVER 1", value="10.0.141.210")
     with col4:
-        tacacs_server_2 = st.text_input("TACACS SERVER 2 (IP)", value="10.0.141.211")
+        tacacs_server_2 = st.text_input("TACACS SERVER 2", value="10.0.141.211")
 
-    # Secret Selection Logic
     model_defaults = get_model_defaults(model)
-    if software_version == "saos10":
-        # Force the SAOS 10 secret if software type is saos10
-        current_secret_val = SAOS10_SECRET
-    else:
-        current_secret_val = model_defaults.get("tacacs_secret")
-
+    current_secret_val = SAOS10_SECRET if software_version == "saos10" else model_defaults.get("tacacs_secret")
     tacacs_secret = st.text_input("TACACS SECRET", value=current_secret_val)
     
-    # License Logic: Keys vs Server IP
     if software_version == "saos10":
-        license_server_ip = st.text_input("LICENSE SERVER IP", value="172.20.0.246")
+        license_server_ip = st.text_input("LICENSE SERVER IP", value="10.0.1.20")
         license_keys_text = ""
     else:
-        license_keys_text = st.text_area("LICENSE KEYS — 1 PER LINE", value="\n".join(model_defaults.get("license_keys", [])), height=100)
+        license_keys_text = st.text_area("LICENSE KEYS", value="\n".join(model_defaults.get("license_keys", [])), height=100)
         license_server_ip = ""
 
 with col2:
-    # defaults for UI
     aggregation_enabled = False
     aggregation_name = ""
-    available_ports = PORT_RANGES.get(model, ["1"]) # Fallback if model missing
+    available_ports = PORT_RANGES.get(model, ["1"])
     
-    # single vs dual UI blocks
     if backhaul == "single":
         st.subheader("SINGLE BACKHAUL")
         if model != "3903":
             aggregation_enabled = st.checkbox("ENABLE AGGREGATION", value=False)
-        else:
-            aggregation_enabled = False
 
+        single_port = st.selectbox("PORT", options=available_ports, index=0, key="single_port")
         if aggregation_enabled:
-            aggregation_name = st.text_input("AGGREGATION NAME", value="Agg_1")
-            single_port = st.multiselect("AGG MEMBER PORTS", options=available_ports, default=available_ports[:1], key="single_agg_members")
-            single_if_name = st.text_input("AGG INTERFACE NAME", value=aggregation_name or f"Agg_{available_ports[0]}")
-        else:
-            single_port = st.selectbox("PORT", options=available_ports, index=0, key="single_port")
-            single_if_name = st.text_input("INTERFACE NAME", value=f"Port_{single_port}")
-
-        single_ip = st.text_input("LOCAL IP (NO PREFIX)", value="")
-        single_prefix = st.selectbox("PREFIX (CIDR)", ["30", "29", "28", "31", "32"], index=0, key="single_pref")
-        single_vlan = st.text_input("VLAN (OPTIONAL)", value="")
-        single_mtu = st.text_input("MTU", value="9216")
-
+             # In simple aggregation logic, primary port is usually the main selector or user picks member list
+             # Adjusted for UI simplicity:
+             single_port = st.multiselect("AGG MEMBER PORTS", options=available_ports, default=available_ports[:1], key="single_agg_members")
+             aggregation_name = st.text_input("AGG NAME", value="Agg_1")
+        
+        # MOVED UP: Neighbor Details (To allow auto-calculation of Interface Name)
         st.markdown("**NEIGHBOR (REMOTE) DETAILS**")
         n_col1, n_col2, n_col3 = st.columns(3)
         with n_col1:
@@ -229,30 +217,32 @@ with col2:
         with n_col3:
             single_neighbor_ip = st.text_input("NEIGHBOR IP", key="sn_ip")
 
+        # Dynamic Interface Name Calculation
+        default_if_name = f"Port_{single_port}"
+        if software_version == "saos10" and single_neighbor_name:
+            default_if_name = derive_link_id(hostname, single_neighbor_name)
+        elif aggregation_enabled:
+            default_if_name = aggregation_name
+        
+        single_if_name = st.text_input("INTERFACE NAME", value=default_if_name)
+        single_ip = st.text_input("LOCAL IP (NO PREFIX)", value="")
+        single_prefix = st.selectbox("PREFIX (CIDR)", ["30", "29", "28", "31", "32"], index=0, key="single_pref")
+        single_vlan = st.text_input("VLAN", value="")
+        single_mtu = st.text_input("MTU", value="9216")
+
     else:
         st.subheader("DUAL BACKHAUL")
         if model != "3903":
-            aggregation_enabled = st.checkbox("ENABLE AGGREGATION FOR BACKHAULS", value=False)
-        else:
-            aggregation_enabled = False
+            aggregation_enabled = st.checkbox("ENABLE AGGREGATION", value=False)
 
         # Primary
-        st.markdown("---")
         st.markdown("**PRIMARY BACKHAUL**")
+        primary_port = st.selectbox("PRIMARY PORT", options=available_ports, index=0, key="primary_port")
         if aggregation_enabled:
-            primary_agg_name = st.text_input("PRIMARY AGG NAME", value="PrimaryAgg")
-            primary_port = st.multiselect("PRIMARY MEMBER PORTS", options=available_ports, default=available_ports[:1], key="primary_agg_members")
-            primary_if_name = st.text_input("PRIMARY AGG IF NAME", value=primary_agg_name or "PrimaryAgg")
-        else:
-            primary_port = st.selectbox("PRIMARY PORT", options=available_ports, index=0, key="primary_port")
-            primary_if_name = st.text_input("PRIMARY INTERFACE NAME", value=f"Port_{primary_port}")
-            
-        primary_ip = st.text_input("PRIMARY LOCAL IP", value="")
-        primary_prefix = st.selectbox("PREFIX (CIDR)", ["30", "29", "28", "31", "32"], index=0, key="primary_pref")
-        primary_vlan = st.text_input("PRIMARY VLAN", value="")
-        primary_mtu = st.text_input("PRIMARY MTU", value="9216")
+             primary_port = st.multiselect("PRIMARY AGG MEMBERS", options=available_ports, default=available_ports[:1], key="primary_agg_members")
+             primary_agg_name = st.text_input("PRIMARY AGG NAME", value="PrimaryAgg")
 
-        st.markdown("**PRIMARY NEIGHBOR DETAILS**")
+        # MOVED UP: Primary Neighbor
         pn_col1, pn_col2, pn_col3 = st.columns(3)
         with pn_col1:
             primary_neighbor_name = st.text_input("NEIGHBOR NAME", key="pn_name")
@@ -261,23 +251,28 @@ with col2:
         with pn_col3:
             primary_neighbor_ip = st.text_input("NEIGHBOR IP", key="pn_ip")
 
+        # Dynamic Name Primary
+        default_p_if_name = f"Port_{primary_port}"
+        if software_version == "saos10" and primary_neighbor_name:
+            default_p_if_name = derive_link_id(hostname, primary_neighbor_name)
+        elif aggregation_enabled:
+            default_p_if_name = locals().get("primary_agg_name", "PrimaryAgg")
+        
+        primary_if_name = st.text_input("PRIMARY IF NAME", value=default_p_if_name)
+        primary_ip = st.text_input("PRIMARY LOCAL IP", value="")
+        primary_prefix = st.selectbox("PREFIX", ["30", "29", "28", "31", "32"], index=0, key="primary_pref")
+        primary_vlan = st.text_input("PRIMARY VLAN", value="")
+        primary_mtu = st.text_input("PRIMARY MTU", value="9216")
+
         # Secondary
         st.markdown("---")
         st.markdown("**SECONDARY BACKHAUL**")
+        secondary_port = st.selectbox("SECONDARY PORT", options=available_ports, index=1 if len(available_ports)>1 else 0, key="secondary_port")
         if aggregation_enabled:
-            secondary_agg_name = st.text_input("SECONDARY AGG NAME", value="SecondaryAgg")
-            secondary_port = st.multiselect("SECONDARY MEMBER PORTS", options=available_ports, default=available_ports[1:2] if len(available_ports) > 1 else available_ports[:1], key="secondary_agg_members")
-            secondary_if_name = st.text_input("SECONDARY AGG IF NAME", value=secondary_agg_name or "SecondaryAgg")
-        else:
-            secondary_port = st.selectbox("SECONDARY PORT", options=available_ports, index=1 if len(available_ports) > 1 else 0, key="secondary_port")
-            secondary_if_name = st.text_input("SECONDARY INTERFACE NAME", value=f"Port_{secondary_port}")
-            
-        secondary_ip = st.text_input("SECONDARY LOCAL IP", value="")
-        secondary_prefix = st.selectbox("SECONDARY PREFIX (CIDR)", ["30", "29", "28", "31", "32"], index=0, key="secondary_pref")
-        secondary_vlan = st.text_input("SECONDARY VLAN", value="")
-        secondary_mtu = st.text_input("SECONDARY MTU", value="9216")
+             secondary_port = st.multiselect("SECONDARY AGG MEMBERS", options=available_ports, default=available_ports[1:2] if len(available_ports)>1 else available_ports[:1], key="secondary_agg_members")
+             secondary_agg_name = st.text_input("SECONDARY AGG NAME", value="SecondaryAgg")
 
-        st.markdown("**SECONDARY NEIGHBOR DETAILS**")
+        # MOVED UP: Secondary Neighbor
         sn_col1, sn_col2, sn_col3 = st.columns(3)
         with sn_col1:
             secondary_neighbor_name = st.text_input("NEIGHBOR NAME", key="secn_name")
@@ -286,17 +281,27 @@ with col2:
         with sn_col3:
             secondary_neighbor_ip = st.text_input("NEIGHBOR IP", key="secn_ip")
 
-    # loopback / gateway
+        # Dynamic Name Secondary
+        default_s_if_name = f"Port_{secondary_port}"
+        if software_version == "saos10" and secondary_neighbor_name:
+            default_s_if_name = derive_link_id(hostname, secondary_neighbor_name)
+        elif aggregation_enabled:
+             default_s_if_name = locals().get("secondary_agg_name", "SecondaryAgg")
+
+        secondary_if_name = st.text_input("SECONDARY IF NAME", value=default_s_if_name)
+        secondary_ip = st.text_input("SECONDARY LOCAL IP", value="")
+        secondary_prefix = st.selectbox("PREFIX", ["30", "29", "28", "31", "32"], index=0, key="secondary_pref")
+        secondary_vlan = st.text_input("SECONDARY VLAN", value="")
+        secondary_mtu = st.text_input("SECONDARY MTU", value="9216")
+
     is_large_model = (model.isdigit() and int(model) > 3903) or model in ["5142", "5130", "5171", "8110", "8114"]
     loopback_ip = st.text_input("LOOPBACK IP (E.G. 172.20.38.240)", value="") if is_large_model else ""
-    
-    # NOTE: For 3903, Gateway IP is the same as Neighbor IP. logic handles it below.
     gateway = "" 
 
 st.markdown("---")
 st.header("OTHER SETTINGS")
-ntp_text = st.text_input("NTP SERVERS (COMMA SEPARATED)", value="10.0.111.1")
-syslog_text = st.text_input("SYSLOG COLLECTORS (COMMA SEPARATED)", value="172.20.0.249")
+ntp_text = st.text_input("NTP SERVERS", value="10.0.111.1")
+syslog_text = st.text_input("SYSLOG COLLECTORS", value="172.20.0.249")
 
 if st.button("RENDER CONFIG(S)"):
     if not hostname:
@@ -307,10 +312,7 @@ if st.button("RENDER CONFIG(S)"):
     ntp_servers = [s.strip() for s in re.split(r"[,\s]+", ntp_text) if s.strip()]
     syslog_collectors = [s.strip() for s in re.split(r"[,\s]+", syslog_text) if s.strip()]
 
-    # Capture vars from locals() because they are created in conditional blocks
     single_neighbor_ip_val = locals().get("single_neighbor_ip", "")
-
-    # For 3903, the Gateway must match the Single Neighbor IP
     if model == "3903":
         gateway = single_neighbor_ip_val
 
