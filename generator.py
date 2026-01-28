@@ -135,47 +135,64 @@ def create_zip_from_dict(files: Dict[str, str]) -> bytes:
     return mem.getvalue()
 
 
-def _derive_saos10_link_id(local_host: str, remote_host: str) -> str:
+def _derive_interface_name(local_host: str, remote_host: str) -> str:
     """
-    Generates a link ID like 'AJO-IKJ8114' from hostnames.
-    Pattern: LocalSite-RemoteSiteRemoteModel
-    Example:
-      Local: NGA-AJO-CNA5130-01 -> AJO
-      Remote: NGA-IKJ-CNA8114-01 -> IKJ, 8114
-      Result: AJO-IKJ8114
+    Smartly derives an Interface Name (<= 15 chars) from various hostname formats.
+    Supports SAOS 10 (NGA-AJO...) and Legacy 39XX (A_steel_sagamu...).
     """
     if not local_host or not remote_host:
         return ""
+
+    def clean_id(hostname: str) -> str:
+        # Standard SAOS 10: NGA-AJO-CNA5130-01 -> AJO
+        parts_dash = hostname.split('-')
+        if len(parts_dash) >= 3 and len(parts_dash[1]) == 3 and parts_dash[1].isalpha():
+            return parts_dash[1]
+        
+        # Legacy: A_steel_sagamu_3903 -> A_steel
+        # Remove trailing models/indices
+        base = re.sub(r'(_39\d{2}|_51\d{2}|_81\d{2}|_0\d|-0\d)+$', '', hostname, flags=re.IGNORECASE)
+        parts_score = base.split('_')
+        
+        # Heuristic: If first part is single char (A_Steel), take first two.
+        if len(parts_score) > 1 and len(parts_score[0]) == 1:
+            return f"{parts_score[0]}_{parts_score[1]}"
+        return parts_score[0]
+
+    def get_model(hostname: str) -> str:
+        # Extract model number (e.g. 8114, 3903) from remote host
+        match = re.search(r'(\d{4})', hostname)
+        return match.group(1) if match else ""
+
+    local_id = clean_id(local_host)
+    remote_id = clean_id(remote_host)
+    remote_model = get_model(remote_host)
+
+    # Strategy: Local-RemoteModel
+    # Example: A_steel-SAK8110
     
-    # Extract Site (between first and second hyphen usually)
-    # NGA-AJO-... or AJO-...
-    def extract_site(s):
-        parts = s.split('-')
-        if len(parts) >= 2:
-            # If starts with NGA, take 2nd part. 
-            if len(parts[0]) == 3 and parts[0].isalpha(): 
-                return parts[1]
-            return parts[0] # Fallback
-        return s
+    # 1. Try Full: L-RM
+    candidate = f"{local_id}-{remote_id}{remote_model}"
+    if len(candidate) <= 15:
+        return candidate
+    
+    # 2. Try without model: L-R
+    candidate = f"{local_id}-{remote_id}"
+    if len(candidate) <= 15:
+        return candidate
 
-    local_site = extract_site(local_host)
-    remote_site = extract_site(remote_host)
-
-    # Extract Model from Remote (digits in the 3rd chunk usually)
-    # NGA-IKJ-CNA8114-01 -> 8114
-    remote_model = ""
-    match = re.search(r"[A-Z]+(\d{4})", remote_host) # matches CNA8114
-    if match:
-        remote_model = match.group(1)
-
-    return f"{local_site}-{remote_site}{remote_model}"
+    # 3. Truncate to fit 15 chars (Max safe limit for interface names)
+    # Give roughly equal weight, slightly favoring Remote to distinguish
+    # limit is 15. hyphen is 1. 14 chars remain. 7 each.
+    l_short = local_id[:7]
+    r_short = remote_id[:7]
+    return f"{l_short}-{r_short}"
 
 
 def _build_interfaces_from_backhaul(dev: Dict) -> List[Dict]:
     interfaces = []
     backhaul = dev.get("backhaul", "") or ""
     aggregation_enabled = bool(dev.get("aggregation_enabled"))
-    is_saos10 = dev.get("software_version") == "saos10"
     local_host = dev.get("hostname", "")
 
     def normalize_port(port_raw):
@@ -187,16 +204,31 @@ def _build_interfaces_from_backhaul(dev: Dict) -> List[Dict]:
         port_raw = dev.get(f"{prefix}_port")
         port = normalize_port(port_raw)
         
-        # Name logic: SAOS 6/8 uses Port_X, SAOS 10 uses Link ID if avail
-        base_name = dev.get(f"{prefix}_if_name") or (f"Port_{port}" if port else "Port_BH")
         neighbor = dev.get(f"{prefix}_neighbor_name")
         
-        link_id = ""
-        if is_saos10 and neighbor:
-            link_id = _derive_saos10_link_id(local_host, neighbor)
+        # Generate Smart Name if not provided explicitly
+        # Use existing input if user typed one, otherwise generate
+        manual_name = dev.get(f"{prefix}_if_name")
+        
+        # Check if the manual name looks like a default "Port_X" or is empty
+        # If it is default/empty, we try to generate a smarter one
+        is_default_name = not manual_name or manual_name.startswith("Port_")
+        
+        smart_name = ""
+        if neighbor:
+            smart_name = _derive_interface_name(local_host, neighbor)
+        
+        # Final name selection:
+        # 1. Use Smart Name if generated and manual was default/empty
+        # 2. Use Manual Name if user typed something specific
+        # 3. Fallback to Port_X
+        if smart_name and is_default_name:
+            final_name = smart_name
+        else:
+            final_name = manual_name or (f"Port_{port}" if port else "Port_BH")
 
         return {
-            "name": base_name,
+            "name": final_name,
             "description": "BACKHAUL",
             "vlan": dev.get(f"{prefix}_vlan"),
             "ip": dev.get(f"{prefix}_ip"),
@@ -207,7 +239,7 @@ def _build_interfaces_from_backhaul(dev: Dict) -> List[Dict]:
             "neighbor_name": neighbor,
             "neighbor_port": dev.get(f"{prefix}_neighbor_port"),
             "neighbor_ip": dev.get(f"{prefix}_neighbor_ip"),
-            "saos10_link_id": link_id # Pass generated ID to template
+            "saos10_link_id": smart_name # Keep for templates explicitly asking for it
         }
 
     if backhaul == "single":

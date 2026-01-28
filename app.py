@@ -9,8 +9,6 @@ from generator import (
 )
 
 MODELS = ["3903", "3916", "3926", "3928", "5142", "5130", "5171", "8110", "8114"]
-SAOS10_MODELS = ["5171", "5130", "8110", "8114"]
-SOFTWARE_TYPES = ["saos6", "saos8", "saos10"]
 
 PORT_RANGES = {
     "3903": [str(i) for i in range(1, 4)],
@@ -24,28 +22,62 @@ PORT_RANGES = {
     "8114": [str(i) for i in range(1, 21)]
 }
 
-def derive_link_id(local_host: str, remote_host: str) -> str:
-    """Helper to derive AJO-IKJ8114 style names in the UI."""
+def get_valid_software_versions(model: str) -> List[str]:
+    """Returns valid software versions based on model constraints."""
+    if model == "3903":
+        return ["saos6"]
+    elif model in ["3916", "3926", "3928", "5142", "5130"]:
+        return ["saos6", "saos10"]
+    elif model == "5171":
+        return ["saos8", "saos10"]
+    elif model in ["8110", "8114"]:
+        return ["saos10"]
+    return ["saos6", "saos10"]
+
+def derive_smart_interface_name(local_host: str, remote_host: str) -> str:
+    """
+    Derives a <= 15 char interface name from mixed hostname formats.
+    Logic mirrors generator.py.
+    """
     if not local_host or not remote_host:
         return ""
-    
-    def extract_site(s):
-        parts = s.split('-')
-        if len(parts) >= 2:
-            if len(parts[0]) == 3 and parts[0].isalpha(): 
-                return parts[1]
-            return parts[0]
-        return s
 
-    local_site = extract_site(local_host)
-    remote_site = extract_site(remote_host)
-    
-    remote_model = ""
-    match = re.search(r"[A-Z]+(\d{4})", remote_host)
-    if match:
-        remote_model = match.group(1)
+    def clean_id(hostname: str) -> str:
+        # Standard SAOS 10: NGA-AJO-CNA5130-01 -> AJO
+        parts_dash = hostname.split('-')
+        if len(parts_dash) >= 3 and len(parts_dash[1]) == 3 and parts_dash[1].isalpha():
+            return parts_dash[1]
+        
+        # Legacy: A_steel_sagamu_3903 -> A_steel
+        base = re.sub(r'(_39\d{2}|_51\d{2}|_81\d{2}|_0\d|-0\d)+$', '', hostname, flags=re.IGNORECASE)
+        parts_score = base.split('_')
+        
+        if len(parts_score) > 1 and len(parts_score[0]) == 1:
+            return f"{parts_score[0]}_{parts_score[1]}"
+        return parts_score[0]
 
-    return f"{local_site}-{remote_site}{remote_model}"
+    def get_model(hostname: str) -> str:
+        match = re.search(r'(\d{4})', hostname)
+        return match.group(1) if match else ""
+
+    local_id = clean_id(local_host)
+    remote_id = clean_id(remote_host)
+    remote_model = get_model(remote_host)
+
+    # 1. Try Full: L-RM
+    candidate = f"{local_id}-{remote_id}{remote_model}"
+    if len(candidate) <= 15:
+        return candidate
+    
+    # 2. Try without model: L-R
+    candidate = f"{local_id}-{remote_id}"
+    if len(candidate) <= 15:
+        return candidate
+
+    # 3. Truncate
+    l_short = local_id[:7]
+    r_short = remote_id[:7]
+    return f"{l_short}-{r_short}"
 
 
 def build_device_from_inputs(inputs: Dict) -> Dict:
@@ -166,9 +198,14 @@ with col1:
     m_col1, m_col2 = st.columns(2)
     with m_col1:
         model = st.selectbox("MODEL", MODELS)
-    default_sw_ix = 2 if model in SAOS10_MODELS else 0
+    
+    valid_versions = get_valid_software_versions(model)
+    default_sw_ix = 0
+    if "saos10" in valid_versions:
+        default_sw_ix = valid_versions.index("saos10")
+        
     with m_col2:
-        software_version = st.selectbox("SOFTWARE VERSION", SOFTWARE_TYPES, index=default_sw_ix, key=f"sw_ver_{model}")
+        software_version = st.selectbox("SOFTWARE VERSION", valid_versions, index=default_sw_ix, key=f"sw_ver_{model}")
 
     backhaul_options = ["single"] if model == "3903" else ["single", "dual"]
     backhaul = st.selectbox("BACKHAUL TYPE", backhaul_options, index=0)
@@ -200,7 +237,6 @@ with col2:
         if model != "3903":
             aggregation_enabled = st.checkbox("ENABLE AGGREGATION", value=False)
 
-        # UI LOGIC FIX: Show EITHER selectbox OR multiselect, not both
         if aggregation_enabled:
              single_port = st.multiselect("AGG MEMBER PORTS", options=available_ports, default=available_ports[:1], key="single_agg_members")
              aggregation_name = st.text_input("AGG NAME", value="Agg_1")
@@ -217,13 +253,12 @@ with col2:
         with n_col3:
             single_neighbor_ip = st.text_input("NEIGHBOR IP", key="sn_ip")
 
-        # Dynamic Interface Name Calculation
-        # Handle single_port possibly being a list
+        # Dynamic Interface Name Calculation (Applying to ALL versions now)
         port_suffix = single_port[0] if isinstance(single_port, list) and single_port else single_port
         default_if_name = f"Port_{port_suffix}"
         
-        if software_version == "saos10" and single_neighbor_name:
-            default_if_name = derive_link_id(hostname, single_neighbor_name)
+        if single_neighbor_name:
+            default_if_name = derive_smart_interface_name(hostname, single_neighbor_name)
         elif aggregation_enabled:
             default_if_name = aggregation_name
         
@@ -240,8 +275,6 @@ with col2:
 
         # Primary
         st.markdown("**PRIMARY BACKHAUL**")
-        
-        # UI LOGIC FIX: Primary
         if aggregation_enabled:
              primary_port = st.multiselect("PRIMARY AGG MEMBERS", options=available_ports, default=available_ports[:1], key="primary_agg_members")
              primary_agg_name = st.text_input("PRIMARY AGG NAME", value="PrimaryAgg")
@@ -261,8 +294,8 @@ with col2:
         p_port_suffix = primary_port[0] if isinstance(primary_port, list) and primary_port else primary_port
         default_p_if_name = f"Port_{p_port_suffix}"
         
-        if software_version == "saos10" and primary_neighbor_name:
-            default_p_if_name = derive_link_id(hostname, primary_neighbor_name)
+        if primary_neighbor_name:
+            default_p_if_name = derive_smart_interface_name(hostname, primary_neighbor_name)
         elif aggregation_enabled:
             default_p_if_name = locals().get("primary_agg_name", "PrimaryAgg")
         
@@ -275,8 +308,6 @@ with col2:
         # Secondary
         st.markdown("---")
         st.markdown("**SECONDARY BACKHAUL**")
-        
-        # UI LOGIC FIX: Secondary
         if aggregation_enabled:
              secondary_port = st.multiselect("SECONDARY AGG MEMBERS", options=available_ports, default=available_ports[1:2] if len(available_ports)>1 else available_ports[:1], key="secondary_agg_members")
              secondary_agg_name = st.text_input("SECONDARY AGG NAME", value="SecondaryAgg")
@@ -296,8 +327,8 @@ with col2:
         s_port_suffix = secondary_port[0] if isinstance(secondary_port, list) and secondary_port else secondary_port
         default_s_if_name = f"Port_{s_port_suffix}"
         
-        if software_version == "saos10" and secondary_neighbor_name:
-            default_s_if_name = derive_link_id(hostname, secondary_neighbor_name)
+        if secondary_neighbor_name:
+            default_s_if_name = derive_smart_interface_name(hostname, secondary_neighbor_name)
         elif aggregation_enabled:
              default_s_if_name = locals().get("secondary_agg_name", "SecondaryAgg")
 
