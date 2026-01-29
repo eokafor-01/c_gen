@@ -28,8 +28,12 @@ def list_templates() -> List[str]:
 
 def choose_template(model: str, backhaul: str, software: str = "", role: str = "", available_templates: Optional[List[str]] = None) -> str:
     """
-    Selects the best template based on model, software version, backhaul type, and role.
-    SAFE MODE: Ensures the returned template actually exists.
+    Selects the best template based on strict hierarchy:
+    1. Model + Software + Backhaul (Most Specific)
+    2. Model + Software
+    3. Software Only (Generic Fallback for SAOS 6/8/10)
+    4. Legacy Model-based fallbacks
+    5. Global Generic
     """
     model = (model or "").strip()
     backhaul = (backhaul or "").strip()
@@ -41,50 +45,62 @@ def choose_template(model: str, backhaul: str, software: str = "", role: str = "
 
     candidates = []
     
-    # Priority 1: Model + Software
-    if model and software:
-        candidates.append(f"ciena_{model}_{software}.cfg.j2")
-        
-    # Priority 2: Model + Software + Backhaul
+    # --- TIER 1: HIGH SPECIFICITY (Model + Software) ---
+    
+    # 1. ciena_<model>_<software>_<backhaul>.cfg.j2
     if model and software and backhaul:
         candidates.append(f"ciena_{model}_{software}_{backhaul}.cfg.j2")
 
-    # Priority 3: Generic SAOS 10
-    if software == "saos10":
-        candidates.append("ciena_saos10.cfg.j2")
+    # 2. ciena_<model>_<software>.cfg.j2
+    if model and software:
+        candidates.append(f"ciena_{model}_{software}.cfg.j2")
         
-    # Priority 4: Generic SAOS 6 (New Fallback)
-    if software == "saos6":
-        candidates.append("ciena_saos6.cfg.j2")
+    # --- TIER 2: SOFTWARE FALLBACK (The Logic You Requested) ---
+    
+    # 3. ciena_<software>.cfg.j2 (e.g., ciena_saos6.cfg.j2, ciena_saos10.cfg.j2)
+    if software:
+        candidates.append(f"ciena_{software}.cfg.j2")
 
-    # Priority 5: Model + Backhaul (Legacy behavior)
+    # --- TIER 3: LEGACY / MODEL FALLBACK ---
+
+    # 4. ciena_<model>_<backhaul>.cfg.j2
     if model and backhaul:
-        candidates += [
-            f"ciena_{model}_{backhaul}.cfg.j2",
-            f"ciena_{model}_{backhaul}_backhaul.cfg.j2",
-            f"ciena_{model}_{backhaul.replace('-', '_')}.cfg.j2",
-        ]
+        candidates.append(f"ciena_{model}_{backhaul}.cfg.j2")
+        # Legacy variations
+        candidates.append(f"ciena_{model}_{backhaul}_backhaul.cfg.j2")
+        candidates.append(f"ciena_{model}_{backhaul.replace('-', '_')}.cfg.j2")
         
-    # Priority 6: Model + Role
+    # 5. ciena_<model>_<role>.cfg.j2
     if model and role:
         candidates.append(f"ciena_{model}_{role}.cfg.j2")
         
-    # Priority 7: Model only
+    # 6. ciena_<model>.cfg.j2
     if model:
         candidates.append(f"ciena_{model}.cfg.j2")
         
-    # Priority 8: Explicit Generic
+    # --- TIER 4: GLOBAL FALLBACK ---
+    
+    # 7. ciena_generic.cfg.j2
     candidates.append("ciena_generic.cfg.j2")
 
+    # --- SELECTION LOOP ---
     for c in candidates:
         if c in available_templates:
             return c
 
-    # FALLBACK: Return first available or generic to avoid crash
+    # FINAL SAFETY NET
+    # If absolutely no matching template is found, return "ciena_generic.cfg.j2" 
+    # (even if it wasn't in the list, though it should be caught above if it exists).
+    # We DO NOT return available_templates[0] anymore to prevent accidental 3903 selection.
+    if "ciena_generic.cfg.j2" in available_templates:
+        return "ciena_generic.cfg.j2"
+        
+    # If even generic is missing, then we have a problem, but returning the first one
+    # is the only option left to prevent a crash, though we log a warning ideally.
     if available_templates:
         return available_templates[0]
+    
     return "ciena_generic.cfg.j2"
-
 
 def render_template(template_name: str, context: Dict) -> str:
     tmpl = env.get_template(template_name)
