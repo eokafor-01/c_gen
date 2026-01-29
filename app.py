@@ -37,7 +37,6 @@ def get_valid_software_versions(model: str) -> List[str]:
 def derive_smart_interface_name(local_host: str, remote_host: str) -> str:
     """
     Derives a <= 15 char interface name from mixed hostname formats.
-    Logic mirrors generator.py.
     """
     if not local_host or not remote_host:
         return ""
@@ -97,6 +96,7 @@ def build_device_from_inputs(inputs: Dict) -> Dict:
     
     model_ports = PORT_RANGES.get(inputs["model"], [])
     dev["ztp_max_ports"] = len(model_ports) if model_ports else 10
+    dev["all_ports"] = model_ports # Pass full list of ports to template
 
     agg_enabled = inputs.get("aggregation_enabled", False)
     dev["aggregation_enabled"] = bool(agg_enabled)
@@ -157,6 +157,15 @@ def build_device_from_inputs(inputs: Dict) -> Dict:
             dev["primary_neighbor_name"] = inputs.get("primary_neighbor_name")
             dev["primary_neighbor_port"] = inputs.get("primary_neighbor_port")
             dev["primary_neighbor_ip"] = inputs.get("primary_neighbor_ip")
+
+            dev["secondary_port"] = inputs.get("secondary_port")
+            dev["secondary_ip"] = f"{inputs['secondary_ip'].strip()}/{inputs['secondary_prefix']}" if inputs.get("secondary_ip") else None
+            dev["secondary_vlan"] = int(inputs["secondary_vlan"]) if inputs.get("secondary_vlan") else None
+            dev["secondary_if_name"] = inputs.get("secondary_if_name")
+            dev["secondary_mtu"] = int(inputs["secondary_mtu"]) if inputs.get("secondary_mtu") else None
+            dev["secondary_neighbor_name"] = inputs.get("secondary_neighbor_name")
+            dev["secondary_neighbor_port"] = inputs.get("secondary_neighbor_port")
+            dev["secondary_neighbor_ip"] = inputs.get("secondary_neighbor_ip")
 
             dev["secondary_port"] = inputs.get("secondary_port")
             dev["secondary_ip"] = f"{inputs['secondary_ip'].strip()}/{inputs['secondary_prefix']}" if inputs.get("secondary_ip") else None

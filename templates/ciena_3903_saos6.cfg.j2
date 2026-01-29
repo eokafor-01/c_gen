@@ -80,10 +80,18 @@ ntp client add server {{ s }}
 syslog create collector {{ s.addr }} severity {{ s.severity }}
 {% endfor %}
 
+{# GENERIC PORT CONFIG #}
 {% for port in range(1,4) %}
 port set port {{ port }} max-frame-size 12000
 vlan remove vlan 127 port {{ port }}
 port set port {{ port }} acceptable-frame-type all
+{% endfor %}
+
+{# BACKHAUL PORT DESCRIPTION #}
+{% for iface in interfaces if iface.description == 'BACKHAUL' %}
+{% if iface.neighbor_name %}
+port set port {{ iface.port }} description "TO {{ iface.neighbor_name }} PORT {{ iface.neighbor_port }} (BACKHAUL)"
+{% endif %}
 {% endfor %}
 
 vlan add vlan {{ single_vlan }} port 3
@@ -109,16 +117,16 @@ system shell set global-more off
 system shell set global-inactivity-timeout 3
 system shell set global-inactivity-timer off
 system shell banner create banner welcome line " +---------------------------------------------------------------+"
-system shell banner add banner welcome line "  |     This system is for the use of authorized users only.      |"
+system shell banner add banner welcome line "  |This system is for the use of authorized users only.           |"
 system shell banner add banner welcome line "  |Individuals using this system without authority or in excess   |"
 system shell banner add banner welcome line "  |of their authority, are subject to having all of the activities|"
 system shell banner add banner welcome line "  |on this system monitored and recorded by system personnel.     |"
 system shell banner add banner welcome line "  |                                                               |"
-system shell banner add banner welcome line "  |     In the course of monitoring individuals improperly using  |"
+system shell banner add banner welcome line "  |In the course of monitoring individuals improperly using       |"
 system shell banner add banner welcome line "  |system, or in the course of system maintenance, the activities |"
 system shell banner add banner welcome line "  |of authorized users may also be monitored.                     |"
 system shell banner add banner welcome line "  |                                                               |"
-system shell banner add banner welcome line "  |     Anyone using this system expressly consents to such       |"
+system shell banner add banner welcome line "  |Anyone using this system expressly consents to such            |"
 system shell banner add banner welcome line "  |monitoring and is advised if such monitoring reveals possible  |"
 system shell banner add banner welcome line "  |evidence of criminal activity, system personnel may provide    |"
 system shell banner add banner welcome line "  |the evidence to law enforcement officials.                     |"
