@@ -9,7 +9,6 @@ from typing import List, Dict, Optional, Tuple
 TEMPLATE_DIR = Path("templates")
 TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
 
-# New SAOS 10 Specific Secret
 SAOS10_SECRET = "ku34yr&oi3746t7YT5R434893"
 
 env = Environment(
@@ -29,11 +28,9 @@ def list_templates() -> List[str]:
 def choose_template(model: str, backhaul: str, software: str = "", role: str = "", available_templates: Optional[List[str]] = None) -> str:
     """
     Selects the best template based on strict hierarchy:
-    1. Model + Software + Backhaul (Most Specific)
-    2. Model + Software
-    3. Software Only (Generic Fallback for SAOS 6/8/10)
-    4. Legacy Model-based fallbacks
-    5. Global Generic
+    1. ciena_<model>_<software>_<backhaul>.cfg.j2
+    2. ciena_<model>_<software>.cfg.j2
+    3. ciena_<software>.cfg.j2  <-- STRICT FALLBACK
     """
     model = (model or "").strip()
     backhaul = (backhaul or "").strip()
@@ -45,72 +42,59 @@ def choose_template(model: str, backhaul: str, software: str = "", role: str = "
 
     candidates = []
     
-    # --- TIER 1: HIGH SPECIFICITY (Model + Software) ---
+    # --- LEVEL 1: HIGH SPECIFICITY (Model + Software) ---
     
-    # 1. ciena_<model>_<software>_<backhaul>.cfg.j2
+    # 1. Model + Software + Backhaul (e.g., ciena_3916_saos6_dual.cfg.j2)
     if model and software and backhaul:
         candidates.append(f"ciena_{model}_{software}_{backhaul}.cfg.j2")
 
-    # 2. ciena_<model>_<software>.cfg.j2
+    # 2. Model + Software (e.g., ciena_3916_saos6.cfg.j2)
     if model and software:
         candidates.append(f"ciena_{model}_{software}.cfg.j2")
         
-    # --- TIER 2: SOFTWARE FALLBACK (The Logic You Requested) ---
+    # --- LEVEL 2: GENERIC SOFTWARE FALLBACK (YOUR REQUEST) ---
     
-    # 3. ciena_<software>.cfg.j2 (e.g., ciena_saos6.cfg.j2, ciena_saos10.cfg.j2)
+    # 3. Software Only (e.g., ciena_saos6.cfg.j2, ciena_saos10.cfg.j2, ciena_saos8.cfg.j2)
     if software:
         candidates.append(f"ciena_{software}.cfg.j2")
 
-    # --- TIER 3: LEGACY / MODEL FALLBACK ---
+    # --- LEVEL 3: LEGACY FALLBACKS (Only if software not provided or specific file missing) ---
 
-    # 4. ciena_<model>_<backhaul>.cfg.j2
     if model and backhaul:
         candidates.append(f"ciena_{model}_{backhaul}.cfg.j2")
-        # Legacy variations
-        candidates.append(f"ciena_{model}_{backhaul}_backhaul.cfg.j2")
-        candidates.append(f"ciena_{model}_{backhaul.replace('-', '_')}.cfg.j2")
         
-    # 5. ciena_<model>_<role>.cfg.j2
-    if model and role:
-        candidates.append(f"ciena_{model}_{role}.cfg.j2")
-        
-    # 6. ciena_<model>.cfg.j2
     if model:
         candidates.append(f"ciena_{model}.cfg.j2")
         
-    # --- TIER 4: GLOBAL FALLBACK ---
-    
-    # 7. ciena_generic.cfg.j2
+    # --- LEVEL 4: GLOBAL FALLBACK ---
     candidates.append("ciena_generic.cfg.j2")
 
-    # --- SELECTION LOOP ---
+    # --- SELECTION ---
     for c in candidates:
         if c in available_templates:
             return c
 
-    # FINAL SAFETY NET
-    # If absolutely no matching template is found, return "ciena_generic.cfg.j2" 
-    # (even if it wasn't in the list, though it should be caught above if it exists).
-    # We DO NOT return available_templates[0] anymore to prevent accidental 3903 selection.
-    if "ciena_generic.cfg.j2" in available_templates:
-        return "ciena_generic.cfg.j2"
+    # FINAL SAFETY NET:
+    # If the user specifically requested a software version, but the files are missing,
+    # we force return the name so the error is obvious (or it works if file was just added),
+    # rather than failing over to a random 3903 file.
+    if software:
+        return f"ciena_{software}.cfg.j2"
         
-    # If even generic is missing, then we have a problem, but returning the first one
-    # is the only option left to prevent a crash, though we log a warning ideally.
-    if available_templates:
-        return available_templates[0]
-    
     return "ciena_generic.cfg.j2"
 
+
 def render_template(template_name: str, context: Dict) -> str:
-    tmpl = env.get_template(template_name)
-    return tmpl.render(**context)
+    try:
+        tmpl = env.get_template(template_name)
+        return tmpl.render(**context)
+    except Exception as e:
+        return f"ERROR: Could not render template '{template_name}'. Details: {str(e)}"
 
 
 def get_model_defaults(model: str) -> Dict[str, List[str]]:
     m = (model or "").strip()
     
-    # Common secret for 39xx/51xx legacy
     legacy_secret = "#A#ZlFm6R4dQ0uR4D6rOjaXTMIoNnKVa9BP+s1VMFnBseL+AN66GjfDOwDrLXWCDUZc2dpW54ThKyWUfwFHN+CL3/B+2uqaL2URdzrB8ecyNHlfAYNWZ+1GhbOrCAJq5YwfZsPqN0yWRIfnzswlQhsJnrzTirtK/t9+3skXxLeNIZcr9hbpkGZGtzofwNs/IHA9TW21N9n61M8ms79egItUriziJoSq3XBp1FFUf1E5VRQ61CE0FKCQt+9DxjMDvPzV"
     
     defaults_map = {
@@ -156,54 +140,37 @@ def create_zip_from_dict(files: Dict[str, str]) -> bytes:
 
 
 def _derive_interface_name(local_host: str, remote_host: str) -> str:
-    """
-    Smartly derives an Interface Name (<= 15 chars) from various hostname formats.
-    Supports SAOS 10 (NGA-AJO...) and Legacy 39XX (A_steel_sagamu...).
-    """
     if not local_host or not remote_host:
         return ""
 
     def clean_id(hostname: str) -> str:
-        # Standard SAOS 10: NGA-AJO-CNA5130-01 -> AJO
         parts_dash = hostname.split('-')
         if len(parts_dash) >= 3 and len(parts_dash[1]) == 3 and parts_dash[1].isalpha():
             return parts_dash[1]
         
-        # Legacy: A_steel_sagamu_3903 -> A_steel
-        # Remove trailing models/indices
         base = re.sub(r'(_39\d{2}|_51\d{2}|_81\d{2}|_0\d|-0\d)+$', '', hostname, flags=re.IGNORECASE)
         parts_score = base.split('_')
         
-        # Heuristic: If first part is single char (A_Steel), take first two.
         if len(parts_score) > 1 and len(parts_score[0]) == 1:
             return f"{parts_score[0]}_{parts_score[1]}"
         return parts_score[0]
 
     def get_model(hostname: str) -> str:
-        # Extract model number (e.g. 8114, 3903) from remote host
         match = re.search(r'(\d{4})', hostname)
         return match.group(1) if match else ""
 
     local_id = clean_id(local_host)
     remote_id = clean_id(remote_host)
     remote_model = get_model(remote_host)
-
-    # Strategy: Local-RemoteModel
-    # Example: A_steel-SAK8110
     
-    # 1. Try Full: L-RM
     candidate = f"{local_id}-{remote_id}{remote_model}"
     if len(candidate) <= 15:
         return candidate
     
-    # 2. Try without model: L-R
     candidate = f"{local_id}-{remote_id}"
     if len(candidate) <= 15:
         return candidate
 
-    # 3. Truncate to fit 15 chars (Max safe limit for interface names)
-    # Give roughly equal weight, slightly favoring Remote to distinguish
-    # limit is 15. hyphen is 1. 14 chars remain. 7 each.
     l_short = local_id[:7]
     r_short = remote_id[:7]
     return f"{l_short}-{r_short}"
@@ -223,25 +190,14 @@ def _build_interfaces_from_backhaul(dev: Dict) -> List[Dict]:
     def create_iface(prefix, idx):
         port_raw = dev.get(f"{prefix}_port")
         port = normalize_port(port_raw)
-        
         neighbor = dev.get(f"{prefix}_neighbor_name")
-        
-        # Generate Smart Name if not provided explicitly
-        # Use existing input if user typed one, otherwise generate
         manual_name = dev.get(f"{prefix}_if_name")
-        
-        # Check if the manual name looks like a default "Port_X" or is empty
-        # If it is default/empty, we try to generate a smarter one
         is_default_name = not manual_name or manual_name.startswith("Port_")
         
         smart_name = ""
         if neighbor:
             smart_name = _derive_interface_name(local_host, neighbor)
         
-        # Final name selection:
-        # 1. Use Smart Name if generated and manual was default/empty
-        # 2. Use Manual Name if user typed something specific
-        # 3. Fallback to Port_X
         if smart_name and is_default_name:
             final_name = smart_name
         else:
@@ -259,7 +215,7 @@ def _build_interfaces_from_backhaul(dev: Dict) -> List[Dict]:
             "neighbor_name": neighbor,
             "neighbor_port": dev.get(f"{prefix}_neighbor_port"),
             "neighbor_ip": dev.get(f"{prefix}_neighbor_ip"),
-            "saos10_link_id": smart_name # Keep for templates explicitly asking for it
+            "saos10_link_id": smart_name
         }
 
     if backhaul == "single":
@@ -279,7 +235,7 @@ def render_device(dev: Dict, available_templates: Optional[List[str]] = None) ->
     model = str(dev.get("model") or "").strip()
     model_defaults = get_model_defaults(model)
 
-    dev = dict(dev)  # shallow copy
+    dev = dict(dev)
     if not dev.get("tacacs_secret"):
         dev["tacacs_secret"] = model_defaults.get("tacacs_secret")
     if not dev.get("license_keys"):
