@@ -27,10 +27,7 @@ def list_templates() -> List[str]:
 
 def choose_template(model: str, backhaul: str, software: str = "", role: str = "", available_templates: Optional[List[str]] = None) -> str:
     """
-    Selects the best template based on strict hierarchy:
-    1. ciena_<model>_<software>_<backhaul>.cfg.j2
-    2. ciena_<model>_<software>.cfg.j2
-    3. ciena_<software>.cfg.j2  <-- STRICT FALLBACK
+    Selects the best template based on strict hierarchy.
     """
     model = (model or "").strip()
     backhaul = (backhaul or "").strip()
@@ -42,42 +39,40 @@ def choose_template(model: str, backhaul: str, software: str = "", role: str = "
 
     candidates = []
     
-    # --- LEVEL 1: HIGH SPECIFICITY (Model + Software) ---
-    
-    # 1. Model + Software + Backhaul (e.g., ciena_3916_saos6_dual.cfg.j2)
+    # 1. EXACT: Model + Software + Backhaul
     if model and software and backhaul:
         candidates.append(f"ciena_{model}_{software}_{backhaul}.cfg.j2")
 
-    # 2. Model + Software (e.g., ciena_3916_saos6.cfg.j2)
+    # 2. EXACT: Model + Software
     if model and software:
         candidates.append(f"ciena_{model}_{software}.cfg.j2")
         
-    # --- LEVEL 2: GENERIC SOFTWARE FALLBACK (YOUR REQUEST) ---
-    
-    # 3. Software Only (e.g., ciena_saos6.cfg.j2, ciena_saos10.cfg.j2, ciena_saos8.cfg.j2)
+    # 3. SOFTWARE FALLBACK (Crucial Step)
+    # If the specific model file is missing, use the generic software version.
     if software:
         candidates.append(f"ciena_{software}.cfg.j2")
 
-    # --- LEVEL 3: LEGACY FALLBACKS (Only if software not provided or specific file missing) ---
-
+    # 4. LEGACY FALLBACKS
     if model and backhaul:
         candidates.append(f"ciena_{model}_{backhaul}.cfg.j2")
-        
+        candidates.append(f"ciena_{model}_{backhaul}_backhaul.cfg.j2")
+    if model and role:
+        candidates.append(f"ciena_{model}_{role}.cfg.j2")
     if model:
         candidates.append(f"ciena_{model}.cfg.j2")
         
-    # --- LEVEL 4: GLOBAL FALLBACK ---
+    # 5. GLOBAL FALLBACK
     candidates.append("ciena_generic.cfg.j2")
 
-    # --- SELECTION ---
+    # Search in available templates
     for c in candidates:
         if c in available_templates:
             return c
 
-    # FINAL SAFETY NET:
-    # If the user specifically requested a software version, but the files are missing,
-    # we force return the name so the error is obvious (or it works if file was just added),
-    # rather than failing over to a random 3903 file.
+    # --- FINAL SAFETY NET ---
+    # DO NOT return available_templates[0] here.
+    # If we still haven't found a match, force the software generic name
+    # so the error is "TemplateNotFound: ciena_saos6.cfg.j2" rather than using the wrong file.
     if software:
         return f"ciena_{software}.cfg.j2"
         
@@ -89,7 +84,7 @@ def render_template(template_name: str, context: Dict) -> str:
         tmpl = env.get_template(template_name)
         return tmpl.render(**context)
     except Exception as e:
-        return f"ERROR: Could not render template '{template_name}'. Details: {str(e)}"
+        return f"ERROR: Could not render template '{template_name}'.\nPossible reason: File missing or syntax error.\nDetails: {str(e)}"
 
 
 def get_model_defaults(model: str) -> Dict[str, List[str]]:
