@@ -8,7 +8,7 @@ from generator import (
     SAOS10_SECRET
 )
 
-MODELS = ["3903", "3916", "3926", "3928", "5142", "5130", "5171", "8110", "8114"]
+MODELS = ["3903", "3916", "3926", "3928", "5142", "5130", "5171", "5186", "8110", "8114"]
 
 PORT_RANGES = {
     "3903": [str(i) for i in range(1, 4)],
@@ -17,6 +17,7 @@ PORT_RANGES = {
     "3926": [f"1.{i}" for i in range(1, 9)],
     "5142": [str(i) for i in range(1, 25)],
     "5130": [str(i) for i in range(1, 15)],
+    "5186": [str(i) for i in range(1, 13)],
     "5171": [str(i) for i in range(1, 41)],
     "8110": [str(i) for i in range(1, 27)],
     "8114": [str(i) for i in range(1, 21)]
@@ -26,7 +27,7 @@ def get_valid_software_versions(model: str) -> List[str]:
     """Returns valid software versions based on model constraints."""
     if model == "3903":
         return ["saos6"]
-    elif model in ["3916", "3926", "3928", "5142", "5130"]:
+    elif model in ["3916", "3926", "3928", "5142", "5130", "5186"]:
         return ["saos6", "saos10"]
     elif model == "5171":
         return ["saos8", "saos10"]
@@ -176,7 +177,7 @@ def build_device_from_inputs(inputs: Dict) -> Dict:
             dev["secondary_neighbor_port"] = inputs.get("secondary_neighbor_port")
             dev["secondary_neighbor_ip"] = inputs.get("secondary_neighbor_ip")
 
-    if (inputs["model"].isdigit() and int(inputs["model"]) > 3903) or inputs["model"] in ["5142", "5130", "5171", "8110", "8114"]:
+    if (inputs["model"].isdigit() and int(inputs["model"]) > 3903) or inputs["model"] in ["5142", "5130",  "5186", "5171", "8110", "8114"]:
         if inputs.get("loopback_ip"):
             dev["loopback_ip"] = inputs["loopback_ip"]
     if inputs["model"] == "3903" and inputs.get("gateway"):
@@ -347,7 +348,7 @@ with col2:
         secondary_vlan = st.text_input("SECONDARY VLAN", value="")
         secondary_mtu = st.text_input("SECONDARY MTU", value="9216")
 
-    is_large_model = (model.isdigit() and int(model) > 3903) or model in ["5142", "5130", "5171", "8110", "8114"]
+    is_large_model = (model.isdigit() and int(model) > 3903) or model in ["5142", "5130",  "5186", "5171", "8110", "8114"]
     loopback_ip = st.text_input("LOOPBACK IP (E.G. 172.20.38.240)", value="") if is_large_model else ""
     gateway = "" 
 

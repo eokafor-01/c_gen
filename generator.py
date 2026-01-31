@@ -111,6 +111,7 @@ def get_model_defaults(model: str) -> Dict[str, List[str]]:
         },
         "5142": {"tacacs_secret": legacy_secret, "license_keys": ["<5142-KEY-PLACEHOLDER>"]},
         "5130": {"tacacs_secret": SAOS10_SECRET, "license_keys": []},
+        "5186": {"tacacs_secret": SAOS10_SECRET, "license_keys": []},
         "5171": {"tacacs_secret": SAOS10_SECRET, "license_keys": []},
         "8110": {"tacacs_secret": SAOS10_SECRET, "license_keys": []},
         "8114": {"tacacs_secret": SAOS10_SECRET, "license_keys": []},
